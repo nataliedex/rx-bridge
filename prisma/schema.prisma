@@ -1,0 +1,161 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model Brand {
+  id               String   @id @default(cuid())
+  name             String
+  active           Boolean  @default(true)
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  orders           Order[]
+  pharmacyConfigs  BrandPharmacyConfig[]
+}
+
+model BrandPharmacyConfig {
+  id               String   @id @default(cuid())
+  brandId          String
+  pharmacyId       String
+  isActive         Boolean  @default(true)
+  isDefault        Boolean  @default(false)
+  routingPriority  Int      @default(0)
+  formatPreference String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  brand            Brand    @relation(fields: [brandId], references: [id])
+  pharmacy         Pharmacy @relation(fields: [pharmacyId], references: [id])
+
+  @@unique([brandId, pharmacyId])
+}
+
+model Patient {
+  id         String   @id @default(cuid())
+  firstName  String
+  lastName   String
+  dob        String
+  phone      String?
+  email      String?
+  address1   String?
+  address2   String?
+  city       String?
+  state      String?
+  zip        String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  orders     Order[]
+}
+
+model Prescriber {
+  id         String   @id @default(cuid())
+  name       String
+  npi        String   @unique
+  clinicName String?
+  phone      String?
+  fax        String?
+  email      String?
+  address    String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  orders     Order[]
+}
+
+model Pharmacy {
+  id               String   @id @default(cuid())
+  name             String
+  contactName      String?
+  phone            String?
+  fax              String?
+  email            String?
+  formatPreference String   @default("standard")
+  requirementsJson String   @default("{}")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  orders           Order[]
+  transmissions    OrderTransmission[]
+  brandConfigs     BrandPharmacyConfig[]
+}
+
+model Order {
+  id             String   @id @default(cuid())
+  brandId        String?
+  patientId      String
+  prescriberId   String
+  pharmacyId     String
+
+  medicationName String
+  strength       String?
+  dosageForm     String?
+  route          String?
+  directions     String?
+  quantity       Int?
+  refills        Int      @default(0)
+  daysSupply     Int?
+  icd10          String?
+  rxNotes        String?
+
+  orderSource    String   @default("manual")
+  sourceRef      String?
+  priority       String   @default("normal")
+  internalNotes  String?
+  status         String   @default("draft")
+
+  // Send Readiness — computed from open issues. Separate from human-driven status.
+  sendReadiness  String   @default("missing_data")
+
+  rawPayload     String?
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  brand          Brand?        @relation(fields: [brandId], references: [id])
+  patient        Patient       @relation(fields: [patientId], references: [id])
+  prescriber     Prescriber    @relation(fields: [prescriberId], references: [id])
+  pharmacy       Pharmacy      @relation(fields: [pharmacyId], references: [id])
+  statusHistory  OrderStatusHistory[]
+  issues         Issue[]
+  transmissions  OrderTransmission[]
+}
+
+model OrderStatusHistory {
+  id        String   @id @default(cuid())
+  orderId   String
+  status    String
+  note      String?
+  createdAt DateTime @default(now())
+  order     Order    @relation(fields: [orderId], references: [id])
+}
+
+// Unified issue model — single source of truth for why an order is blocked.
+model Issue {
+  id             String    @id @default(cuid())
+  orderId        String
+  type           String    @default("missing_required_field") // missing_required_field, validation_warning, clarification_request, manual_review
+  severity       String    @default("blocking") // blocking, warning, info
+  source         String    @default("system") // system, rx_bridge_user, brand, pharmacy
+  fieldPath      String?   // dot-path like "medication.directions", null for manual issues
+  title          String
+  message        String
+  status         String    @default("open") // open, resolved, dismissed
+  resolutionNote String?
+  createdAt      DateTime  @default(now())
+  resolvedAt     DateTime?
+  order          Order     @relation(fields: [orderId], references: [id])
+}
+
+model OrderTransmission {
+  id              String   @id @default(cuid())
+  orderId         String
+  pharmacyId      String
+  method          String   @default("manual")
+  payloadSnapshot String
+  overrideUsed    Boolean  @default(false)
+  sentAt          DateTime @default(now())
+  order           Order    @relation(fields: [orderId], references: [id])
+  pharmacy        Pharmacy @relation(fields: [pharmacyId], references: [id])
+}

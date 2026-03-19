@@ -1,0 +1,30 @@
+@import "tailwindcss";
+
+/* Field highlight animation when navigating from an issue */
+@keyframes field-highlight {
+  0% { background-color: rgb(254 249 195); }
+  100% { background-color: transparent; }
+}
+
+.field-highlight-active {
+  animation: field-highlight 2s ease-out;
+  border-radius: 0.375rem;
+}
+
+/* Clickable table rows */
+tr.row-clickable {
+  cursor: pointer;
+  transition: background-color 100ms ease, box-shadow 100ms ease;
+}
+tr.row-clickable:active {
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* Dashboard tile hover */
+.tile-hover {
+  transition: transform 150ms ease, box-shadow 150ms ease, border-color 150ms ease;
+}
+.tile-hover:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
