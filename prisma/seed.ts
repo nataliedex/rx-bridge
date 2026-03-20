@@ -175,6 +175,12 @@ async function main() {
   for (const assignment of providerAssignments) {
     for (let i = assignment.start; i <= Math.min(assignment.end, meds.length - 1); i++) {
       const providerPrice = Math.round(basePrices[i] * providerMarkups[assignment.markupIdx] * 100) / 100;
+      // Vary verification: first 5 meds fresh, 5-8 aging, rest stale/unverified
+      const provVerifiedAt = i < 5 ? twoWeeksAgo
+        : i < 8 ? sixWeeksAgo
+        : i < 12 ? threeMonthsAgo
+        : null;
+
       await prisma.providerMedicationPrice.create({
         data: {
           providerId: assignment.provider.id,
@@ -182,6 +188,8 @@ async function main() {
           price: providerPrice,
           effectiveDate: threeMonthsAgo,
           notes: "Contract rate",
+          verifiedAt: provVerifiedAt,
+          verificationSource: provVerifiedAt ? "Contract review" : undefined,
         },
       });
     }

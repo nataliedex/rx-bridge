@@ -1094,6 +1094,116 @@ export async function getProviderPricingTable(providerId?: string) {
   }));
 }
 
+// --- Provider Pricing Audit ---
+
+export type ProviderAuditStatus = "fresh" | "aging" | "stale" | "missing";
+
+interface ProviderAuditRow {
+  medicationId: string;
+  medicationName: string;
+  providerId: string;
+  providerName: string;
+  priceEntryId: string | null;
+  price: number | null;
+  effectiveDate: string | null;
+  verifiedAt: string | null;
+  status: ProviderAuditStatus;
+}
+
+export async function getProviderPricingAudit(opts?: {
+  filter?: "all" | "stale" | "missing";
+  search?: string;
+  providerId?: string;
+  medicationId?: string;
+}): Promise<ProviderAuditRow[]> {
+  const filter = opts?.filter || "all";
+  const search = opts?.search?.toLowerCase();
+
+  const [medications, providers, activePrices] = await Promise.all([
+    prisma.medication.findMany({ orderBy: { name: "asc" } }),
+    prisma.provider.findMany({ orderBy: { name: "asc" } }),
+    prisma.providerMedicationPrice.findMany({
+      where: { endDate: null },
+      include: { provider: true, medication: true },
+    }),
+  ]);
+
+  const priceMap = new Map<string, typeof activePrices[number]>();
+  for (const p of activePrices) {
+    priceMap.set(`${p.medicationId}:${p.providerId}`, p);
+  }
+
+  const filteredMeds = opts?.medicationId ? medications.filter((m) => m.id === opts.medicationId) : medications;
+  const filteredProviders = opts?.providerId ? providers.filter((p) => p.id === opts.providerId) : providers;
+
+  const rows: ProviderAuditRow[] = [];
+
+  for (const med of filteredMeds) {
+    for (const prov of filteredProviders) {
+      if (search) {
+        const words = search.split(/\s+/).filter(Boolean);
+        const combined = `${med.name} ${prov.name}`.toLowerCase();
+        if (!words.every((w) => combined.includes(w))) continue;
+      }
+
+      const entry = priceMap.get(`${med.id}:${prov.id}`);
+      if (entry) {
+        const status = computeAuditStatus(entry.verifiedAt);
+        if (filter === "missing") continue;
+        if (filter === "stale" && status === "fresh") continue;
+        rows.push({
+          medicationId: med.id,
+          medicationName: med.name,
+          providerId: prov.id,
+          providerName: prov.name,
+          priceEntryId: entry.id,
+          price: entry.price,
+          effectiveDate: entry.effectiveDate.toISOString(),
+          verifiedAt: entry.verifiedAt?.toISOString() ?? null,
+          status,
+        });
+      } else {
+        if (filter === "stale") continue;
+        rows.push({
+          medicationId: med.id,
+          medicationName: med.name,
+          providerId: prov.id,
+          providerName: prov.name,
+          priceEntryId: null,
+          price: null,
+          effectiveDate: null,
+          verifiedAt: null,
+          status: "missing",
+        });
+      }
+    }
+  }
+
+  const order: Record<ProviderAuditStatus, number> = { missing: 0, stale: 1, aging: 2, fresh: 3 };
+  rows.sort((a, b) => order[a.status] - order[b.status] || a.medicationName.localeCompare(b.medicationName));
+
+  return rows;
+}
+
+export async function markProviderPriceVerified(priceEntryId: string, source?: string) {
+  return prisma.providerMedicationPrice.update({
+    where: { id: priceEntryId },
+    data: {
+      verifiedAt: new Date(),
+      verificationSource: source?.trim() || undefined,
+    },
+  });
+}
+
+export async function removeProviderMedicationPrice(providerId: string, medicationId: string) {
+  const result = await prisma.providerMedicationPrice.updateMany({
+    where: { providerId, medicationId, endDate: null },
+    data: { endDate: new Date() },
+  });
+  if (result.count === 0) throw new Error("No active pricing to remove");
+  return result;
+}
+
 // --- Routing Policy ---
 
 export async function getRoutingPolicyAction() {

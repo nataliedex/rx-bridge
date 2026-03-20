@@ -8,6 +8,7 @@ const tabs = [
   { label: "Pricing Audit", href: "/network/audit" },
   { label: "Pharmacies", href: "/network/pharmacies" },
   { label: "Provider Pricing", href: "/network/providers" },
+  { label: "Provider Audit", href: "/network/provider-audit" },
 ];
 
 export function NetworkTabs() {

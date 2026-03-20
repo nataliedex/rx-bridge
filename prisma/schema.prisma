@@ -105,17 +105,19 @@ model Provider {
 }
 
 model ProviderMedicationPrice {
-  id            String    @id @default(cuid())
-  providerId    String
-  medicationId  String
-  price         Float
-  effectiveDate DateTime  @default(now())
-  endDate       DateTime? // null = currently active
-  notes         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  provider      Provider   @relation(fields: [providerId], references: [id])
-  medication    Medication @relation(fields: [medicationId], references: [id])
+  id                 String    @id @default(cuid())
+  providerId         String
+  medicationId       String
+  price              Float
+  effectiveDate      DateTime  @default(now())
+  endDate            DateTime? // null = currently active
+  notes              String?
+  verifiedAt         DateTime?
+  verificationSource String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  provider           Provider   @relation(fields: [providerId], references: [id])
+  medication         Medication @relation(fields: [medicationId], references: [id])
 }
 
 model Medication {
