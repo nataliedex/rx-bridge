@@ -88,6 +88,7 @@ interface FieldData {
   };
 }
 
+// Human-readable labels for compliance display
 export const FIELD_LABELS: Record<string, string> = {
   "patient.dob": "Patient date of birth",
   "patient.phone": "Patient phone",
@@ -96,11 +97,43 @@ export const FIELD_LABELS: Record<string, string> = {
   "prescriber.phone": "Prescriber phone",
   "prescriber.fax": "Prescriber fax",
   "medication.name": "Medication name",
-  "medication.directions": "Prescription directions/sig",
+  "medication.directions": "Directions / sig",
   "medication.quantity": "Quantity",
-  "medication.strength": "Medication strength",
+  "medication.strength": "Strength",
   "medication.dosageForm": "Dosage form",
   "medication.daysSupply": "Days supply",
+};
+
+// Concise action-oriented labels for issue titles
+export const FIELD_ISSUE_TITLES: Record<string, string> = {
+  "patient.dob": "Date of birth missing",
+  "patient.phone": "Phone number missing",
+  "patient.email": "Email missing",
+  "prescriber.npi": "NPI missing",
+  "prescriber.phone": "Prescriber phone missing",
+  "prescriber.fax": "Prescriber fax missing",
+  "medication.name": "Medication name missing",
+  "medication.directions": "Directions missing",
+  "medication.quantity": "Quantity missing",
+  "medication.strength": "Strength missing",
+  "medication.dosageForm": "Dosage form missing",
+  "medication.daysSupply": "Days supply missing",
+};
+
+// Labels for resolved issues — reflect action taken, not the problem
+export const FIELD_RESOLVED_LABELS: Record<string, string> = {
+  "patient.dob": "Date of birth added",
+  "patient.phone": "Phone number added",
+  "patient.email": "Email added",
+  "prescriber.npi": "NPI added",
+  "prescriber.phone": "Prescriber phone added",
+  "prescriber.fax": "Prescriber fax added",
+  "medication.name": "Medication name added",
+  "medication.directions": "Directions added",
+  "medication.quantity": "Quantity entered",
+  "medication.strength": "Strength added",
+  "medication.dosageForm": "Dosage form added",
+  "medication.daysSupply": "Days supply entered",
 };
 
 function isFieldPresent(field: string, data: FieldData): boolean {

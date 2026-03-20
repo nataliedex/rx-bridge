@@ -26,17 +26,17 @@ export const STATUS_LABELS: Record<OrderStatus, string> = {
   rejected: "Rejected",
 };
 
-// Neutral palette — status badges should not compete with Action Needed
+// Status colors: plain text for neutral states, badge only for important states
 export const STATUS_COLORS: Record<OrderStatus, string> = {
-  draft: "bg-gray-100 text-gray-700",
-  submitted: "bg-gray-100 text-gray-700",
-  under_review: "bg-gray-100 text-gray-700",
-  needs_clarification: "bg-gray-100 text-gray-700",
-  approved: "bg-gray-100 text-gray-700",
-  queued: "bg-gray-100 text-gray-700",
-  sent_to_pharmacy: "bg-gray-100 text-gray-700",
-  completed: "bg-green-50 text-green-700",
-  rejected: "bg-red-50 text-red-700",
+  draft: "text-gray-500",
+  submitted: "text-gray-500",
+  under_review: "text-gray-500",
+  needs_clarification: "bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded",
+  approved: "text-gray-500",
+  queued: "text-gray-500",
+  sent_to_pharmacy: "text-gray-500",
+  completed: "text-gray-500",
+  rejected: "text-gray-400",
 };
 
 // --- Action Needed (system-computed, derived from open issues) ---
@@ -49,19 +49,46 @@ export const SEND_READINESS_VALUES = [
 
 export type SendReadiness = (typeof SEND_READINESS_VALUES)[number];
 
-// Action-oriented labels
 export const SEND_READINESS_LABELS: Record<SendReadiness, string> = {
-  ready: "Ready",
-  missing_data: "Fix required",
-  needs_review: "Review required",
+  ready: "Ready to Queue",
+  missing_data: "Fix Issues",
+  needs_review: "Review",
 };
 
-// Strong contrast for action items, neutral for ready
 export const SEND_READINESS_COLORS: Record<SendReadiness, string> = {
-  ready: "bg-green-50 text-green-700",
-  missing_data: "bg-red-100 text-red-800 font-semibold",
-  needs_review: "bg-amber-100 text-amber-800 font-semibold",
+  ready: "text-gray-500",
+  missing_data: "bg-red-100 text-red-800 px-1.5 py-0.5 rounded font-semibold",
+  needs_review: "bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-semibold",
 };
+
+// Computes the Next Step label and color based on both status and send readiness.
+export function getNextStep(status: string, sendReadiness: string): { label: string; color: string } | null {
+  // Post-send statuses have no next step
+  if (status === "sent_to_pharmacy" || status === "completed" || status === "rejected") return null;
+
+  // Blocking issues always take priority
+  if (sendReadiness === "missing_data") return { label: "Fix Issues", color: "bg-red-100 text-red-800 px-1.5 py-0.5 rounded font-semibold" };
+
+  // Status-specific next steps when data is ready
+  if (status === "draft" || status === "submitted" || status === "under_review") {
+    if (sendReadiness === "needs_review") return { label: "Review", color: "bg-amber-100 text-amber-800 font-semibold" };
+    return { label: "Ready to Approve", color: "text-gray-500" };
+  }
+
+  if (status === "needs_clarification") {
+    return { label: "Review", color: "bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-semibold" };
+  }
+
+  if (status === "approved") {
+    return { label: "Ready to Queue", color: "text-gray-500" };
+  }
+
+  if (status === "queued") {
+    return { label: "Ready to Send", color: "bg-green-50 text-green-700 px-1.5 py-0.5 rounded" };
+  }
+
+  return null;
+}
 
 export const SEND_READINESS_TOOLTIPS: Record<SendReadiness, string> = {
   ready: "All checks passed — ready to proceed",

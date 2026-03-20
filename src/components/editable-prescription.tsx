@@ -23,6 +23,8 @@ export function EditablePrescription({ orderId, data, issues }: Props) {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const [resolvedIds, setResolvedIds] = useState<Set<string>>(new Set());
+  const [autoResolved, setAutoResolved] = useState<string[]>([]);
+  const [remainingHumanIssues, setRemainingHumanIssues] = useState(0);
 
   const [medicationName, setMedicationName] = useState(data.medicationName);
   const [strength, setStrength] = useState(data.strength || "");
@@ -37,6 +39,7 @@ export function EditablePrescription({ orderId, data, issues }: Props) {
 
   const sectionIssues = issues.filter((i) => i.status === "open" && i.fieldPath?.startsWith("medication."));
   const issueCount = sectionIssues.length;
+  const issueFields = new Set(sectionIssues.map((i) => i.fieldPath).filter(Boolean));
 
   // Listen for open-edit events from issue links
   useEffect(() => {
@@ -57,15 +60,17 @@ export function EditablePrescription({ orderId, data, issues }: Props) {
   }
 
   async function handleSave() {
-    setSaving(true); setError(""); setSaved(false);
+    setSaving(true); setError(""); setSaved(false); setAutoResolved([]);
     try {
-      await updatePrescription(orderId, {
+      const result = await updatePrescription(orderId, {
         medicationName, strength, dosageForm, route, directions,
         quantity: quantity ? parseInt(quantity) : null,
         refills: refills ? parseInt(refills) : 0,
         daysSupply: daysSupply ? parseInt(daysSupply) : null,
         icd10, rxNotes,
       });
+      setAutoResolved(result.autoResolved);
+      setRemainingHumanIssues(result.remainingHumanIssues);
       setSaved(true); setEditing(false); router.refresh();
     } catch (err) { setError(err instanceof Error ? err.message : "Failed to save"); }
     finally { setSaving(false); }
@@ -80,22 +85,22 @@ export function EditablePrescription({ orderId, data, issues }: Props) {
       <SectionHeader title="Prescription" editing={editing} issueCount={issueCount} onEdit={() => { setEditing(true); setSaved(false); }} />
       {error && <p className="text-red-600 text-xs mb-3">{error}</p>}
 
-      {saved && <PostSaveIssuePrompt sectionLabel="Prescription" issues={sectionIssues} resolvedIds={resolvedIds} onResolve={handleResolve} />}
-      {saved && sectionIssues.filter((i) => !resolvedIds.has(i.id)).length === 0 && <SavedBanner message="Prescription saved." />}
+      {saved && <PostSaveIssuePrompt sectionLabel="Prescription" issues={sectionIssues} resolvedIds={resolvedIds} autoResolved={autoResolved} remainingHumanIssues={remainingHumanIssues} onResolve={handleResolve} />}
+      {saved && autoResolved.length === 0 && sectionIssues.filter((i) => !resolvedIds.has(i.id)).length === 0 && <SavedBanner message="Prescription saved." />}
 
       {editing ? (
         <div className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <EditField label="Medication Name" value={medicationName} onChange={setMedicationName} fieldPath="medication.name" />
-            <EditField label="Strength" value={strength} onChange={setStrength} hint="e.g. 200mg/mL" fieldPath="medication.strength" />
-            <EditField label="Dosage Form" value={dosageForm} onChange={setDosageForm} hint="e.g. Capsule, Injectable" fieldPath="medication.dosageForm" />
-            <EditField label="Route" value={route} onChange={setRoute} hint="e.g. Oral, IM, Topical" fieldPath="medication.route" />
+            <EditField label="Medication Name" value={medicationName} onChange={setMedicationName} fieldPath="medication.name" hasIssue={issueFields.has("medication.name")} />
+            <EditField label="Strength" value={strength} onChange={setStrength} hint="e.g. 200mg/mL" fieldPath="medication.strength" hasIssue={issueFields.has("medication.strength")} />
+            <EditField label="Dosage Form" value={dosageForm} onChange={setDosageForm} hint="e.g. Capsule, Injectable" fieldPath="medication.dosageForm" hasIssue={issueFields.has("medication.dosageForm")} />
+            <EditField label="Route" value={route} onChange={setRoute} hint="e.g. Oral, IM, Topical" fieldPath="medication.route" hasIssue={issueFields.has("medication.route")} />
           </div>
-          <EditField label="Directions / Sig" value={directions} onChange={setDirections} fieldPath="medication.directions" />
+          <EditField label="Directions / Sig" value={directions} onChange={setDirections} fieldPath="medication.directions" hasIssue={issueFields.has("medication.directions")} />
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <EditField label="Quantity" value={quantity} onChange={setQuantity} type="number" fieldPath="medication.quantity" />
-            <EditField label="Refills" value={refills} onChange={setRefills} type="number" fieldPath="medication.refills" />
-            <EditField label="Days Supply" value={daysSupply} onChange={setDaysSupply} type="number" fieldPath="medication.daysSupply" />
+            <EditField label="Quantity" value={quantity} onChange={setQuantity} type="number" fieldPath="medication.quantity" hasIssue={issueFields.has("medication.quantity")} />
+            <EditField label="Refills" value={refills} onChange={setRefills} type="number" fieldPath="medication.refills" hasIssue={issueFields.has("medication.refills")} />
+            <EditField label="Days Supply" value={daysSupply} onChange={setDaysSupply} type="number" fieldPath="medication.daysSupply" hasIssue={issueFields.has("medication.daysSupply")} />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <EditField label="ICD-10 / Diagnosis" value={icd10} onChange={setIcd10} hint="e.g. E29.1" fieldPath="medication.icd10" />

@@ -94,7 +94,7 @@ describe("normalizeOrder (from DB record)", () => {
     expect(normalizeOrder(strictPharmacy as any).compliance.missingRequired).toHaveLength(0);
     const noStrength = { ...strictPharmacy, strength: "" };
     const normalized2 = normalizeOrder(noStrength as any);
-    expect(normalized2.compliance.missingRequired).toContain("Medication strength");
+    expect(normalized2.compliance.missingRequired).toContain("Strength");
     expect(normalized2.sendReadiness).toBe("missing_data");
   });
 });
@@ -135,5 +135,53 @@ describe("manual intake adapter", () => {
     expect(normalized.sendReadiness).toBe("ready");
     expect(normalized.meta.brandId).toBe("brand-1");
     expect(normalized.orderId).toBeNull();
+  });
+});
+
+describe("lifefile formatter", () => {
+  const { toLifefileRow, toLifefileCSV, validateForLifefile, LIFEFILE_COLUMNS } = require("../transformers/formatters/lifefile");
+
+  // Build a normalized order from baseOrder for testing
+  const normalizedComplete = normalizeOrder(baseOrder as any);
+
+  it("maps normalized order to lifefile row with correct columns", () => {
+    const row = toLifefileRow(normalizedComplete);
+    expect(row.PatientFirstName).toBe("John");
+    expect(row.PatientLastName).toBe("Doe");
+    expect(row.PatientDOB).toBe("1985-03-15");
+    expect(row.PrescriberNPI).toBe("1234567890");
+    expect(row.MedicationName).toBe("Testosterone Cypionate");
+    expect(row.Strength).toBe("200mg/mL");
+    expect(row.Quantity).toBe("10");
+    expect(row.Directions).toBe("Inject 0.5mL weekly");
+  });
+
+  it("generates valid CSV with header and data rows", () => {
+    const csv = toLifefileCSV([normalizedComplete]);
+    const lines = csv.split("\n");
+    expect(lines.length).toBe(2); // header + 1 row
+    expect(lines[0]).toBe(LIFEFILE_COLUMNS.join(","));
+    expect(lines[1]).toContain("Testosterone Cypionate");
+    expect(lines[1]).toContain("1234567890");
+  });
+
+  it("validates complete order as lifefile-ready", () => {
+    const result = validateForLifefile(normalizedComplete);
+    expect(result.isReady).toBe(true);
+    expect(result.missingFields).toHaveLength(0);
+  });
+
+  it("detects missing lifefile-required fields", () => {
+    const incomplete = { ...normalizedComplete, prescription: { ...normalizedComplete.prescription, strength: "", dosageForm: "" } };
+    const result = validateForLifefile(incomplete);
+    expect(result.isReady).toBe(false);
+    expect(result.missingFields).toContain("Strength");
+    expect(result.missingFields).toContain("Dosage form");
+  });
+
+  it("escapes CSV fields with commas", () => {
+    const orderWithComma = { ...normalizedComplete, prescription: { ...normalizedComplete.prescription, directions: "Take 1 capsule, twice daily" } };
+    const csv = toLifefileCSV([orderWithComma]);
+    expect(csv).toContain('"Take 1 capsule, twice daily"');
   });
 });

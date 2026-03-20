@@ -1,8 +1,6 @@
-// Formatter registry. Maps format IDs to formatter implementations.
-// To add a pharmacy-specific format, import it and add to the registry.
-
 import type { PharmacyFormatter } from "./base";
 import { standardFormatter } from "./standard";
+import { lifefileFormatter } from "./lifefile";
 
 const registry = new Map<string, PharmacyFormatter>();
 
@@ -11,6 +9,7 @@ function register(formatter: PharmacyFormatter) {
 }
 
 register(standardFormatter);
+register(lifefileFormatter);
 
 export function getFormatter(formatId: string): PharmacyFormatter {
   return registry.get(formatId) || standardFormatter;

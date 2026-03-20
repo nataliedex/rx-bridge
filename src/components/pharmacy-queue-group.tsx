@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { bulkSendToPharmacy } from "@/lib/actions";
 import type { UrgencyTier } from "@/lib/format";
+import { LifefileExportButton } from "./lifefile-export-button";
+import { parsePricing, aggregatePricing, formatCurrency, formatPercent } from "@/lib/pricing";
 
 interface QueueOrderRow {
   id: string;
@@ -12,8 +14,16 @@ interface QueueOrderRow {
   medication: string;
   brand: string | null;
   priority: string;
+  pricingJson: string | null;
   age: string;
   urgency: UrgencyTier;
+  createdAt: string;
+}
+
+interface ExportBatchRecord {
+  id: string;
+  fileName: string;
+  orderCount: number;
   createdAt: string;
 }
 
@@ -23,6 +33,7 @@ interface Props {
   hasUrgent: boolean;
   hasStale: boolean;
   orders: QueueOrderRow[];
+  recentExports: ExportBatchRecord[];
 }
 
 const PRIORITY_SORT: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
@@ -40,7 +51,7 @@ const URGENCY_TEXT: Record<UrgencyTier, string> = {
   stale: "text-red-500 font-medium",
 };
 
-export function PharmacyQueueGroup({ pharmacyId, pharmacyName, hasUrgent, hasStale, orders }: Props) {
+export function PharmacyQueueGroup({ pharmacyId, pharmacyName, hasUrgent, hasStale, orders, recentExports }: Props) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sending, setSending] = useState(false);
@@ -122,13 +133,22 @@ export function PharmacyQueueGroup({ pharmacyId, pharmacyName, hasUrgent, hasSta
             </p>
           </div>
         </div>
-        <button
-          onClick={() => handleSend(selected.size > 0 ? Array.from(selected) : allRemainingIds)}
-          disabled={sending}
-          className="bg-green-700 text-white rounded-md px-5 py-2 text-sm font-semibold hover:bg-green-800 disabled:opacity-50 shadow-sm transition-colors"
-        >
-          {sending ? "Sending..." : sendLabel}
-        </button>
+        <div className="flex items-center gap-2">
+          <LifefileExportButton
+            orderIds={selected.size > 0 ? Array.from(selected) : allRemainingIds}
+            pharmacyId={pharmacyId}
+            pharmacyName={pharmacyName}
+            orders={sorted.map((o) => ({ id: o.id, patient: o.patient, medication: o.medication }))}
+            recentExports={recentExports}
+          />
+          <button
+            onClick={() => handleSend(selected.size > 0 ? Array.from(selected) : allRemainingIds)}
+            disabled={sending}
+            className="bg-green-700 text-white rounded-md px-5 py-2 text-sm font-semibold hover:bg-green-800 disabled:opacity-50 shadow-sm transition-colors"
+          >
+            {sending ? "Sending..." : sendLabel}
+          </button>
+        </div>
       </div>
 
       {/* Partial send success */}
@@ -146,6 +166,21 @@ export function PharmacyQueueGroup({ pharmacyId, pharmacyName, hasUrgent, hasSta
           ))}
         </div>
       )}
+
+      {/* Pricing summary */}
+      {(() => {
+        const pricingItems = sorted.map((o) => parsePricing(o.pricingJson));
+        const agg = aggregatePricing(pricingItems);
+        if (!agg) return null;
+        return (
+          <div className="px-4 py-2 bg-white border-b border-green-100 flex items-center gap-6 text-xs">
+            <span className="text-gray-500">Batch total:</span>
+            <span className="text-gray-400 line-through">{formatCurrency(agg.totalRetail)}</span>
+            <span className="font-semibold text-gray-900">{formatCurrency(agg.totalGpo)}</span>
+            <span className="text-green-700 font-medium">Save {formatCurrency(agg.totalSavings)} ({formatPercent(agg.avgSavingsPercent)})</span>
+          </div>
+        );
+      })()}
 
       <table className="min-w-full divide-y divide-gray-100 bg-white">
         <thead>

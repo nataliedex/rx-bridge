@@ -22,6 +22,8 @@ export function EditablePrescriber({ orderId, data, issues }: Props) {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
   const [resolvedIds, setResolvedIds] = useState<Set<string>>(new Set());
+  const [autoResolved, setAutoResolved] = useState<string[]>([]);
+  const [remainingHumanIssues, setRemainingHumanIssues] = useState(0);
 
   const [name, setName] = useState(data.name);
   const [npi, setNpi] = useState(data.npi);
@@ -33,6 +35,7 @@ export function EditablePrescriber({ orderId, data, issues }: Props) {
 
   const sectionIssues = issues.filter((i) => i.status === "open" && i.fieldPath?.startsWith("prescriber."));
   const issueCount = sectionIssues.length;
+  const issueFields = new Set(sectionIssues.map((i) => i.fieldPath).filter(Boolean));
 
   useEffect(() => {
     const el = sectionRef.current;
@@ -50,9 +53,11 @@ export function EditablePrescriber({ orderId, data, issues }: Props) {
   }
 
   async function handleSave() {
-    setSaving(true); setError(""); setSaved(false);
+    setSaving(true); setError(""); setSaved(false); setAutoResolved([]);
     try {
-      await updatePrescriber(orderId, { name, npi, clinicName, phone, fax, email, address });
+      const result = await updatePrescriber(orderId, { name, npi, clinicName, phone, fax, email, address });
+      setAutoResolved(result.autoResolved);
+      setRemainingHumanIssues(result.remainingHumanIssues);
       setSaved(true); setEditing(false); router.refresh();
     } catch (err) { setError(err instanceof Error ? err.message : "Failed to save"); }
     finally { setSaving(false); }
@@ -67,19 +72,19 @@ export function EditablePrescriber({ orderId, data, issues }: Props) {
       <SectionHeader title="Prescriber" editing={editing} issueCount={issueCount} onEdit={() => { setEditing(true); setSaved(false); }} />
       {error && <p className="text-red-600 text-xs mb-3">{error}</p>}
 
-      {saved && <PostSaveIssuePrompt sectionLabel="Prescriber" issues={sectionIssues} resolvedIds={resolvedIds} onResolve={handleResolve} />}
-      {saved && sectionIssues.filter((i) => !resolvedIds.has(i.id)).length === 0 && <SavedBanner message="Prescriber saved." />}
+      {saved && <PostSaveIssuePrompt sectionLabel="Prescriber" issues={sectionIssues} resolvedIds={resolvedIds} autoResolved={autoResolved} remainingHumanIssues={remainingHumanIssues} onResolve={handleResolve} />}
+      {saved && autoResolved.length === 0 && sectionIssues.filter((i) => !resolvedIds.has(i.id)).length === 0 && <SavedBanner message="Prescriber saved." />}
 
       {editing ? (
         <div className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <EditField label="Prescriber Name" value={name} onChange={setName} fieldPath="prescriber.name" />
-            <EditField label="NPI" value={npi} onChange={setNpi} hint="10-digit National Provider Identifier" fieldPath="prescriber.npi" />
+            <EditField label="Prescriber Name" value={name} onChange={setName} fieldPath="prescriber.name" hasIssue={issueFields.has("prescriber.name")} />
+            <EditField label="NPI" value={npi} onChange={setNpi} hint="10-digit National Provider Identifier" fieldPath="prescriber.npi" hasIssue={issueFields.has("prescriber.npi")} />
           </div>
-          <EditField label="Clinic Name" value={clinicName} onChange={setClinicName} fieldPath="prescriber.clinicName" />
+          <EditField label="Clinic Name" value={clinicName} onChange={setClinicName} fieldPath="prescriber.clinicName" hasIssue={issueFields.has("prescriber.clinicName")} />
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <EditField label="Phone" value={phone} onChange={setPhone} type="tel" fieldPath="prescriber.phone" />
-            <EditField label="Fax" value={fax} onChange={setFax} type="tel" fieldPath="prescriber.fax" />
+            <EditField label="Phone" value={phone} onChange={setPhone} type="tel" fieldPath="prescriber.phone" hasIssue={issueFields.has("prescriber.phone")} />
+            <EditField label="Fax" value={fax} onChange={setFax} type="tel" fieldPath="prescriber.fax" hasIssue={issueFields.has("prescriber.fax")} />
             <EditField label="Email" value={email} onChange={setEmail} type="email" fieldPath="prescriber.email" />
           </div>
           <EditField label="Address" value={address} onChange={setAddress} fieldPath="prescriber.address" />

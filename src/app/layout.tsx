@@ -18,8 +18,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                 Rx-Bridge
               </Link>
               <div className="flex gap-6 text-sm">
-                <Link href="/orders" className="text-gray-600 hover:text-gray-900">
-                  Orders
+                <Link href="/queue" className="text-gray-600 hover:text-gray-900">
+                  Send Queue
+                </Link>
+                <Link href="/network" className="text-gray-600 hover:text-gray-900">
+                  Network
+                </Link>
+                <Link href="/settings" className="text-gray-600 hover:text-gray-900">
+                  Settings
                 </Link>
               </div>
             </div>

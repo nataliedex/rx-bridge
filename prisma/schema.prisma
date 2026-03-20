@@ -7,6 +7,12 @@ datasource db {
   url      = "file:./dev.db"
 }
 
+model SystemConfig {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
 model Brand {
   id               String   @id @default(cuid())
   name             String
@@ -66,19 +72,76 @@ model Prescriber {
 }
 
 model Pharmacy {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   name             String
   contactName      String?
   phone            String?
   fax              String?
   email            String?
+  street           String?
+  city             String?
+  state            String?
+  zip              String?
+  serviceStates    String?  // JSON array of US state abbreviations, e.g. ["TX","CA","NY"]
   formatPreference String   @default("standard")
   requirementsJson String   @default("{}")
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  archivedAt       DateTime? // null = active; set to archive
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
   orders           Order[]
   transmissions    OrderTransmission[]
+  exportBatches    ExportBatch[]
   brandConfigs     BrandPharmacyConfig[]
+  medicationPriceHistory MedicationPriceEntry[]
+}
+
+model Provider {
+  id        String   @id @default(cuid())
+  name      String
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  priceHistory ProviderMedicationPrice[]
+}
+
+model ProviderMedicationPrice {
+  id            String    @id @default(cuid())
+  providerId    String
+  medicationId  String
+  price         Float
+  effectiveDate DateTime  @default(now())
+  endDate       DateTime? // null = currently active
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  provider      Provider   @relation(fields: [providerId], references: [id])
+  medication    Medication @relation(fields: [medicationId], references: [id])
+}
+
+model Medication {
+  id        String   @id @default(cuid())
+  name      String
+  form      String
+  strength  String
+  createdAt DateTime @default(now())
+  priceHistory MedicationPriceEntry[]
+  providerPriceHistory ProviderMedicationPrice[]
+}
+
+model MedicationPriceEntry {
+  id                 String    @id @default(cuid())
+  medicationId       String
+  pharmacyId         String
+  price              Float
+  effectiveDate      DateTime  @default(now())
+  endDate            DateTime? // null = currently active
+  notes              String?
+  verifiedAt         DateTime? // last verification timestamp
+  verificationSource String?   // e.g. "contract", "pharmacy call", "GPO portal"
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  medication         Medication @relation(fields: [medicationId], references: [id])
+  pharmacy           Pharmacy   @relation(fields: [pharmacyId], references: [id])
 }
 
 model Order {
@@ -107,6 +170,13 @@ model Order {
 
   // Send Readiness — computed from open issues. Separate from human-driven status.
   sendReadiness  String   @default("missing_data")
+
+  // Pricing — JSON string: { gpoPrice, retailEstimate, savingsAbsolute, savingsPercent }
+  pricingJson    String?
+
+  // Routing — how the pharmacy was selected
+  routingMethod  String?  // "auto" | "manual" | null (legacy)
+  routingJson    String?  // JSON: { recommendedPharmacyId, price, reason, alternatives, computedAt }
 
   rawPayload     String?
 
@@ -149,13 +219,26 @@ model Issue {
 }
 
 model OrderTransmission {
-  id              String   @id @default(cuid())
+  id              String       @id @default(cuid())
   orderId         String
   pharmacyId      String
-  method          String   @default("manual")
+  method          String       @default("manual")
   payloadSnapshot String
-  overrideUsed    Boolean  @default(false)
-  sentAt          DateTime @default(now())
-  order           Order    @relation(fields: [orderId], references: [id])
-  pharmacy        Pharmacy @relation(fields: [pharmacyId], references: [id])
+  overrideUsed    Boolean      @default(false)
+  batchId         String?
+  sentAt          DateTime     @default(now())
+  order           Order        @relation(fields: [orderId], references: [id])
+  pharmacy        Pharmacy     @relation(fields: [pharmacyId], references: [id])
+  batch           ExportBatch? @relation(fields: [batchId], references: [id])
+}
+
+model ExportBatch {
+  id            String              @id @default(cuid())
+  pharmacyId    String
+  method        String              @default("lifefile_csv")
+  fileName      String
+  orderCount    Int
+  createdAt     DateTime            @default(now())
+  pharmacy      Pharmacy            @relation(fields: [pharmacyId], references: [id])
+  transmissions OrderTransmission[]
 }

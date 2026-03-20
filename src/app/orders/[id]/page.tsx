@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getOrder } from "@/lib/actions";
+import { getOrder, getProviderPriceForMedication } from "@/lib/actions";
 import { transformOrder } from "@/lib/transformers/pipeline";
 import { STATUS_LABELS, STATUS_COLORS, SEND_READINESS_LABELS, SEND_READINESS_COLORS, isSendReadinessRelevant, type OrderStatus, type SendReadiness } from "@/lib/types";
 import { timeAgo } from "@/lib/format";
@@ -11,6 +11,7 @@ import { EditablePatient } from "@/components/editable-patient";
 import { EditablePrescriber } from "@/components/editable-prescriber";
 import { EditablePrescription } from "@/components/editable-prescription";
 import { EditableInternalNotes } from "@/components/editable-internal-notes";
+import { parsePricing, formatCurrency, formatPercent } from "@/lib/pricing";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,7 @@ export default async function OrderDetailPage({ params }: Props) {
   if (!order) notFound();
 
   const { normalized, packet } = transformOrder(order);
+  const providerPriceEntry = await getProviderPriceForMedication(order.medicationName);
   const openIssues = order.issues.filter((i) => i.status === "open");
 
   const issueRefs = JSON.parse(JSON.stringify(order.issues.map((i) => ({
@@ -108,7 +110,6 @@ export default async function OrderDetailPage({ params }: Props) {
             issues={issueRefs}
           />
 
-          {/* TODO: Fulfillment Pharmacy editing — requires re-routing safeguards */}
           <div id="section-pharmacy" className="bg-white border border-gray-200 rounded-lg p-6 scroll-mt-20">
             <h2 className="text-lg font-medium mb-4">Fulfillment Pharmacy</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -117,6 +118,100 @@ export default async function OrderDetailPage({ params }: Props) {
               <ViewRow label="Email" value={order.pharmacy.email} />
               <ViewRow label="Format" value={order.pharmacy.formatPreference} />
             </div>
+            {(() => {
+              const method = (order as any).routingMethod as string | null;
+              const routingRaw = (order as any).routingJson as string | null;
+              if (!method && !routingRaw) return null;
+              const routingData = routingRaw ? JSON.parse(routingRaw) : null;
+              const isAuto = method === "auto";
+              const isOverride = method === "manual" && routingData?.recommendedPharmacyId && routingData.recommendedPharmacyId !== order.pharmacyId;
+              const alternatives = routingData?.alternatives || [];
+              const ineligible = routingData?.ineligible || [];
+              const totalConsidered = alternatives.length + ineligible.length + 1; // +1 for recommended
+
+              return (
+                <div className="mt-4 space-y-2">
+                  {/* Routing method banner */}
+                  <div className={`rounded-md px-3 py-2.5 border text-xs ${
+                    isAuto ? "bg-green-50 border-green-200"
+                      : isOverride ? "bg-amber-50 border-amber-200"
+                      : "bg-gray-50 border-gray-200"
+                  }`}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`font-medium ${isAuto ? "text-green-700" : isOverride ? "text-amber-700" : "text-gray-600"}`}>
+                        {isAuto ? "Auto-selected" : isOverride ? "Manually overridden" : "Manually selected"}
+                      </span>
+                      {routingData?.freshness && (
+                        <span className={`text-[10px] ${
+                          routingData.freshness === "fresh" ? "text-green-600"
+                            : routingData.freshness === "aging" ? "text-amber-600"
+                            : "text-red-500"
+                        }`}>
+                          {routingData.freshness === "fresh" ? "Verified recently"
+                            : routingData.freshness === "aging" ? "Price aging"
+                            : routingData.freshness === "unverified" ? "Never verified"
+                            : "Price stale"}
+                        </span>
+                      )}
+                    </div>
+                    {routingData?.reason && (
+                      <p className="text-gray-500">{routingData.reason}</p>
+                    )}
+                    {isOverride && routingData?.recommendedPharmacyName && routingData?.price != null && (
+                      <p className="text-amber-600 mt-0.5">
+                        Routing recommended {routingData.recommendedPharmacyName} at {formatCurrency(routingData.price)}
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Alternatives considered — collapsible */}
+                  {(alternatives.length > 0 || ineligible.length > 0) && (
+                    <details className="text-xs">
+                      <summary className="text-gray-400 cursor-pointer hover:text-gray-600">
+                        {totalConsidered} pharmac{totalConsidered !== 1 ? "ies" : "y"} evaluated
+                      </summary>
+                      <div className="mt-2 border border-gray-200 rounded-md overflow-hidden">
+                        {/* Eligible alternatives */}
+                        {alternatives.length > 0 && (
+                          <div className="divide-y divide-gray-100">
+                            {alternatives.map((alt: { pharmacyId: string; pharmacyName: string; price: number; freshness?: string; flags?: string[] }) => (
+                              <div key={alt.pharmacyId} className="px-3 py-2 flex items-center justify-between">
+                                <div>
+                                  <span className="text-gray-700">{alt.pharmacyName}</span>
+                                  {alt.freshness && alt.freshness !== "fresh" && (
+                                    <span className={`ml-2 text-[10px] ${
+                                      alt.freshness === "aging" ? "text-amber-500" : "text-red-400"
+                                    }`}>
+                                      {alt.freshness === "aging" ? "aging" : alt.freshness === "unverified" ? "unverified" : "stale"}
+                                    </span>
+                                  )}
+                                </div>
+                                <span className="text-gray-500 font-medium">{formatCurrency(alt.price)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {/* Ineligible pharmacies */}
+                        {ineligible.length > 0 && (
+                          <div className={`divide-y divide-gray-100 ${alternatives.length > 0 ? "border-t border-gray-200" : ""}`}>
+                            <div className="px-3 py-1.5 bg-gray-50 text-[10px] text-gray-400 uppercase tracking-wider">Ineligible</div>
+                            {ineligible.map((ine: { pharmacyId: string; pharmacyName: string; price: number; reason: string }) => (
+                              <div key={ine.pharmacyId} className="px-3 py-2 flex items-center justify-between opacity-60">
+                                <div>
+                                  <span className="text-gray-500">{ine.pharmacyName}</span>
+                                  <span className="ml-2 text-[10px] text-gray-400">{ine.reason}</span>
+                                </div>
+                                <span className="text-gray-400">{formatCurrency(ine.price)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </details>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           <details className={`bg-white border border-gray-200 rounded-lg ${order.sendReadiness === "ready" ? "" : "open"}`}>
@@ -154,7 +249,7 @@ export default async function OrderDetailPage({ params }: Props) {
 
         {/* Sidebar — reference info, no primary actions */}
         <div className="space-y-6">
-          <StatusUpdater orderId={order.id} currentStatus={order.status as OrderStatus} />
+          <StatusUpdater orderId={order.id} currentStatus={order.status as OrderStatus} hasBlockingIssues={order.sendReadiness !== "ready"} orderSource={order.orderSource} />
 
           <EditableInternalNotes
             orderId={order.id}
@@ -163,6 +258,61 @@ export default async function OrderDetailPage({ params }: Props) {
             source={order.orderSource}
             priority={order.priority}
           />
+
+          {(() => {
+            const pricing = parsePricing((order as any).pricingJson);
+            const routingRaw = (order as any).routingJson as string | null;
+            const pharmacyCost = routingRaw ? JSON.parse(routingRaw)?.price as number | null : null;
+            const providerPrice = providerPriceEntry?.price ?? null;
+            const hasMargin = pharmacyCost != null && providerPrice != null;
+            const margin = hasMargin ? providerPrice - pharmacyCost : null;
+            const marginPct = hasMargin && providerPrice > 0 ? margin! / providerPrice : null;
+
+            if (!pricing && !hasMargin && !providerPrice) return null;
+
+            return (
+              <div className="bg-white border border-gray-200 rounded-lg p-6">
+                <h3 className="text-sm font-medium text-gray-900 mb-3">Pricing</h3>
+                <div className="space-y-2">
+                  {providerPrice != null && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Provider Price</span>
+                      <span className="font-semibold text-gray-900">{formatCurrency(providerPrice)}</span>
+                    </div>
+                  )}
+                  {pharmacyCost != null && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-gray-500">Pharmacy Cost</span>
+                      <span className="text-gray-700">{formatCurrency(pharmacyCost)}</span>
+                    </div>
+                  )}
+                  {hasMargin && margin != null && marginPct != null && (
+                    <div className={`border-t border-gray-100 pt-2 flex justify-between text-sm font-medium ${margin >= 0 ? "text-green-700" : "text-red-600"}`}>
+                      <span>Margin</span>
+                      <span>{formatCurrency(margin)} ({formatPercent(marginPct)})</span>
+                    </div>
+                  )}
+                  {pricing && (
+                    <>
+                      {(hasMargin || providerPrice != null) && <div className="border-t border-gray-100 pt-2" />}
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Estimated Retail</span>
+                        <span className="text-gray-400 line-through">{formatCurrency(pricing.retailEstimate)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">GPO Price</span>
+                        <span className="font-semibold text-gray-900">{formatCurrency(pricing.gpoPrice)}</span>
+                      </div>
+                      <div className="border-t border-gray-100 pt-2 flex justify-between text-sm">
+                        <span className="text-green-700 font-medium">Savings</span>
+                        <span className="text-green-700 font-medium">{formatCurrency(pricing.savingsAbsolute)} ({formatPercent(pricing.savingsPercent)})</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
 
           <div className="bg-white border border-gray-200 rounded-lg p-6">
             <h3 className="text-sm font-medium text-gray-900 mb-3">Audit</h3>

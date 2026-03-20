@@ -67,22 +67,22 @@ export function WorkflowBanner({ orderId, sendReadiness, orderStatus, pharmacyNa
 
   return (
     <div className={`rounded-lg p-4 mb-6 border ${
-      isQueued ? "bg-indigo-50 border-indigo-200"
+      isQueued ? "bg-gray-50 border-gray-200"
         : isReady && isApproved ? "bg-green-50 border-green-200"
-        : isSent ? "bg-purple-50 border-purple-200"
-        : isReady ? "bg-blue-50 border-blue-200"
+        : isSent ? "bg-gray-50 border-gray-200"
+        : isReady ? "bg-green-50 border-green-200"
         : isBlocked ? "bg-red-50 border-red-200"
-        : "bg-yellow-50 border-yellow-200"
+        : "bg-amber-50 border-amber-200"
     }`}>
       {error && <p className="text-red-600 text-xs mb-2">{error}</p>}
 
       {/* State A: Blocking issues */}
       {!isReady && !isSent && !isQueued && (
         <div>
-          <h2 className={`text-sm font-semibold ${isBlocked ? "text-red-800" : "text-yellow-800"}`}>
+          <h2 className={`text-sm font-semibold ${isBlocked ? "text-red-800" : "text-amber-800"}`}>
             Fix {openIssueCount} issue{openIssueCount !== 1 ? "s" : ""} before sending
           </h2>
-          <p className={`text-xs mt-0.5 ${isBlocked ? "text-red-600" : "text-yellow-700"}`}>
+          <p className={`text-xs mt-0.5 ${isBlocked ? "text-red-600" : "text-amber-700"}`}>
             Resolve all blocking issues below. Edit the relevant section, then mark the issue resolved.
           </p>
           <div className="mt-3">
@@ -108,8 +108,8 @@ export function WorkflowBanner({ orderId, sendReadiness, orderStatus, pharmacyNa
       {isReady && !isApproved && !isQueued && !isSent && (
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-semibold text-blue-800">Ready for approval</h2>
-            <p className="text-xs text-blue-700 mt-0.5">All issues resolved. Approve to proceed.</p>
+            <h2 className="text-sm font-semibold text-green-800">Ready for approval</h2>
+            <p className="text-xs text-green-700 mt-0.5">All issues resolved. Approve to proceed.</p>
           </div>
           <button onClick={handleApprove} disabled={acting}
             className="bg-green-600 text-white rounded-md px-5 py-2 text-sm font-medium hover:bg-green-700 disabled:opacity-50 shrink-0 ml-4">
@@ -156,8 +156,8 @@ export function WorkflowBanner({ orderId, sendReadiness, orderStatus, pharmacyNa
       {isQueued && (
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-semibold text-indigo-800">Queued for {pharmacyName}</h2>
-            <p className="text-xs text-indigo-700 mt-0.5">
+            <h2 className="text-sm font-semibold text-gray-800">Queued for {pharmacyName}</h2>
+            <p className="text-xs text-gray-600 mt-0.5">
               This order will be sent from the Queue page with other orders for this pharmacy.
             </p>
           </div>
@@ -171,8 +171,8 @@ export function WorkflowBanner({ orderId, sendReadiness, orderStatus, pharmacyNa
       {isSent && (
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-sm font-semibold text-purple-800">Sent to {pharmacyName}</h2>
-            <p className="text-xs text-purple-700 mt-0.5">This order has been transmitted.{alreadySent && " You can resend if needed."}</p>
+            <h2 className="text-sm font-semibold text-gray-800">Sent to {pharmacyName}</h2>
+            <p className="text-xs text-gray-600 mt-0.5">This order has been transmitted.{alreadySent && " You can resend if needed."}</p>
           </div>
           <button onClick={() => handleSend(false)} disabled={acting}
             className="border border-purple-300 text-purple-700 rounded-md px-4 py-1.5 text-xs font-medium hover:bg-purple-50 disabled:opacity-50 shrink-0 ml-4">

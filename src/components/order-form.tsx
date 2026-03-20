@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { createOrder, getBrandPharmacyConfigs } from "@/lib/actions";
+import { createOrder, getBrandPharmacyConfigs, getPharmacyRouting } from "@/lib/actions";
 import { createOrderSchema } from "@/lib/validators/order";
 import type { Pharmacy, Brand } from "@prisma/client";
+import type { RoutingResult } from "@/lib/routing";
 
 interface PharmacyConfigItem {
   pharmacyId: string;
@@ -66,6 +67,19 @@ function Section({ title, children, defaultOpen = true, count }: { title: string
   );
 }
 
+const FRESHNESS_LABELS: Record<string, string> = {
+  fresh: "Verified recently",
+  aging: "Price aging",
+  stale: "Price stale",
+  unverified: "Never verified",
+};
+const FRESHNESS_COLORS: Record<string, string> = {
+  fresh: "text-green-600",
+  aging: "text-amber-600",
+  stale: "text-red-500",
+  unverified: "text-red-600",
+};
+
 export function OrderForm({ pharmacies, brands }: Props) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
@@ -110,30 +124,64 @@ export function OrderForm({ pharmacies, brands }: Props) {
   const [internalNotes, setInternalNotes] = useState("");
 
   const [brandPharmacies, setBrandPharmacies] = useState<PharmacyConfigItem[]>([]);
-  const [pharmacyAutoSelected, setPharmacyAutoSelected] = useState(false);
 
+  // Routing state
+  const [routing, setRouting] = useState<RoutingResult | null>(null);
+  const [routingLoading, setRoutingLoading] = useState(false);
+  const [routingMethod, setRoutingMethod] = useState<"auto" | "manual" | null>(null);
+  const routingDebounce = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Fetch brand pharmacy configs
   useEffect(() => {
     if (!brandId) {
       setBrandPharmacies([]);
-      setPharmacyAutoSelected(false);
       return;
     }
     let cancelled = false;
     getBrandPharmacyConfigs(brandId).then((configs) => {
       if (cancelled) return;
       setBrandPharmacies(configs as PharmacyConfigItem[]);
-      const defaultConfig = configs.find((c) => c.isDefault);
-      if (defaultConfig && !pharmacyId) {
-        setPharmacyId(defaultConfig.pharmacyId);
-        setPharmacyAutoSelected(true);
-      }
     });
     return () => { cancelled = true; };
-  }, [brandId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [brandId]);
+
+  // Auto-routing: trigger when medication name, patient state, or brand changes
+  useEffect(() => {
+    if (routingDebounce.current) clearTimeout(routingDebounce.current);
+
+    if (!medicationName.trim() || medicationName.trim().length < 3) {
+      setRouting(null);
+      return;
+    }
+
+    routingDebounce.current = setTimeout(async () => {
+      setRoutingLoading(true);
+      try {
+        const result = await getPharmacyRouting(
+          medicationName.trim(),
+          state.trim() || null,
+          brandId || null,
+        );
+        setRouting(result);
+
+        // Auto-select if we have a recommendation and user hasn't manually chosen
+        if (result.status !== "no_eligible_pharmacy" && result.recommended && routingMethod !== "manual") {
+          setPharmacyId(result.recommended.pharmacyId);
+          setRoutingMethod("auto");
+        }
+      } catch {
+        setRouting(null);
+      } finally {
+        setRoutingLoading(false);
+      }
+    }, 500);
+
+    return () => { if (routingDebounce.current) clearTimeout(routingDebounce.current); };
+  }, [medicationName, state, brandId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handlePharmacyChange(newId: string) {
     setPharmacyId(newId);
-    setPharmacyAutoSelected(false);
+    setRoutingMethod(newId ? "manual" : null);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -164,7 +212,6 @@ export function OrderForm({ pharmacies, brands }: Props) {
       }
       setErrors(fieldErrors);
       setSubmitting(false);
-      // Scroll to first error
       const firstKey = Object.keys(fieldErrors)[0];
       const el = document.querySelector(`[name="${firstKey?.split(".").pop()}"]`);
       el?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -172,7 +219,33 @@ export function OrderForm({ pharmacies, brands }: Props) {
     }
 
     try {
-      const order = await createOrder(result.data);
+      const routingData = routing ? {
+        method: routingMethod || "manual",
+        json: JSON.stringify({
+          recommendedPharmacyId: routing.recommended?.pharmacyId ?? null,
+          recommendedPharmacyName: routing.recommended?.pharmacyName ?? null,
+          price: routing.recommended?.price ?? null,
+          freshness: routing.recommended?.freshness ?? null,
+          reason: routing.reason,
+          status: routing.status,
+          alternatives: routing.alternatives.map((a) => ({
+            pharmacyId: a.pharmacyId,
+            pharmacyName: a.pharmacyName,
+            price: a.price,
+            freshness: a.freshness,
+            flags: a.flags,
+          })),
+          ineligible: routing.ineligible.map((i) => ({
+            pharmacyId: i.pharmacyId,
+            pharmacyName: i.pharmacyName,
+            price: i.price,
+            reason: i.reason,
+          })),
+          computedAt: routing.computedAt,
+        }),
+      } : undefined;
+
+      const order = await createOrder(result.data, routingData);
       router.push(`/orders/${order.id}`);
     } catch (err) {
       setGlobalError(err instanceof Error ? err.message : "Failed to create order");
@@ -182,6 +255,11 @@ export function OrderForm({ pharmacies, brands }: Props) {
 
   const brandPharmacyIds = new Set(brandPharmacies.map((c) => c.pharmacyId));
   const otherPharmacies = pharmacies.filter((p) => !brandPharmacyIds.has(p.id));
+
+  // Find current pharmacy in routing results for display
+  const routedPharmacy = routing?.recommended?.pharmacyId === pharmacyId
+    ? routing.recommended
+    : routing?.alternatives.find((a) => a.pharmacyId === pharmacyId) ?? null;
 
   return (
     <form onSubmit={handleSubmit}>
@@ -195,7 +273,7 @@ export function OrderForm({ pharmacies, brands }: Props) {
           <label htmlFor="brandId" className="block text-sm font-medium text-gray-700 mb-1">Brand</label>
           <select
             id="brandId" value={brandId}
-            onChange={(e) => { setBrandId(e.target.value); setPharmacyAutoSelected(false); }}
+            onChange={(e) => { setBrandId(e.target.value); setRoutingMethod(null); }}
             className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
           >
             <option value="">No brand</option>
@@ -216,7 +294,7 @@ export function OrderForm({ pharmacies, brands }: Props) {
               <optgroup label={`${brands.find(b => b.id === brandId)?.name} pharmacies`}>
                 {brandPharmacies.map((cp) => (
                   <option key={cp.pharmacyId} value={cp.pharmacyId}>
-                    {cp.pharmacy.name}{cp.isDefault ? " (recommended)" : ""}
+                    {cp.pharmacy.name}{cp.isDefault ? " (brand default)" : ""}
                   </option>
                 ))}
               </optgroup>
@@ -227,8 +305,80 @@ export function OrderForm({ pharmacies, brands }: Props) {
               </optgroup>
             )}
           </select>
-          {pharmacyAutoSelected && <p className="text-xs text-indigo-600 mt-1">Recommended by Rx-Bridge based on brand routing and pricing agreements</p>}
-          {!pharmacyAutoSelected && !pharmacyId && <p className="text-gray-400 text-xs mt-1">Auto-selected based on brand routing and pricing agreements</p>}
+
+          {/* Routing recommendation display */}
+          {routingLoading && (
+            <p className="text-xs text-gray-400 mt-1">Finding best pharmacy...</p>
+          )}
+          {!routingLoading && routing && routing.status === "recommended" && routingMethod === "auto" && routing.recommended && (
+            <div className="mt-1.5 bg-green-50 border border-green-200 rounded-md px-3 py-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-green-700">Auto-selected: lowest valid price</span>
+                <span className={`text-[10px] ${FRESHNESS_COLORS[routing.recommended.freshness]}`}>
+                  {FRESHNESS_LABELS[routing.recommended.freshness]}
+                </span>
+              </div>
+              <p className="text-[11px] text-green-600 mt-0.5">
+                ${routing.recommended.price.toFixed(2)} at {routing.recommended.pharmacyName}
+                {routing.recommended.isBrandDefault && " · brand preferred"}
+              </p>
+              {routing.alternatives.length > 0 && (
+                <p className="text-[10px] text-gray-400 mt-0.5">
+                  {routing.alternatives.length} other eligible pharmac{routing.alternatives.length !== 1 ? "ies" : "y"}
+                </p>
+              )}
+            </div>
+          )}
+          {!routingLoading && routing && routing.status === "needs_review" && routingMethod === "auto" && routing.recommended && (
+            <div className="mt-1.5 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+              <p className="text-xs font-medium text-amber-700">Best available — price needs verification</p>
+              <p className="text-[11px] text-amber-600 mt-0.5">
+                ${routing.recommended.price.toFixed(2)} at {routing.recommended.pharmacyName}
+                {routing.recommended.freshness === "unverified" && " — never verified"}
+                {routing.recommended.freshness === "stale" && " — last verified over 60 days ago"}
+              </p>
+              <p className="text-[10px] text-amber-500 mt-1">Verify pricing in the Network tab before sending this order</p>
+            </div>
+          )}
+          {!routingLoading && routing && routing.status === "no_eligible_pharmacy" && (
+            <div className="mt-1.5 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+              <p className="text-xs font-medium text-red-700">No eligible pharmacy found</p>
+              <p className="text-[11px] text-red-600 mt-0.5">{routing.reason}</p>
+              <div className="flex items-center gap-3 mt-1.5 pt-1.5 border-t border-red-100">
+                <span className="text-[10px] text-red-500">Next steps:</span>
+                <a href="/network" className="text-[10px] text-indigo-600 hover:text-indigo-800 font-medium">Add pricing</a>
+                <a href="/network/pharmacies" className="text-[10px] text-indigo-600 hover:text-indigo-800 font-medium">Check service states</a>
+                <span className="text-[10px] text-gray-400">or select a pharmacy manually above</span>
+              </div>
+            </div>
+          )}
+          {!routingLoading && routingMethod === "manual" && pharmacyId && routing?.recommended && routing.recommended.pharmacyId !== pharmacyId && (
+            <div className="mt-1.5 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+              <p className="text-xs font-medium text-amber-700">Manual override</p>
+              {routedPharmacy ? (
+                <p className="text-[11px] text-amber-600 mt-0.5">
+                  Selected {routedPharmacy.pharmacyName} at ${routedPharmacy.price.toFixed(2)}
+                  {routedPharmacy.price > routing.recommended.price
+                    ? ` — $${(routedPharmacy.price - routing.recommended.price).toFixed(2)} higher than ${routing.recommended.pharmacyName} ($${routing.recommended.price.toFixed(2)})`
+                    : routedPharmacy.price < routing.recommended.price
+                    ? ` — $${(routing.recommended.price - routedPharmacy.price).toFixed(2)} lower than recommended, but lower routing score`
+                    : ` — same price as recommended`
+                  }
+                </p>
+              ) : (
+                <p className="text-[11px] text-amber-600 mt-0.5">
+                  Routing recommended {routing.recommended.pharmacyName} at ${routing.recommended.price.toFixed(2)}
+                </p>
+              )}
+              <button type="button" onClick={() => { setPharmacyId(routing.recommended!.pharmacyId); setRoutingMethod("auto"); }}
+                className="text-[10px] text-indigo-600 hover:text-indigo-800 font-medium mt-1">
+                Use recommended pharmacy instead
+              </button>
+            </div>
+          )}
+          {!routingLoading && !routing && !pharmacyId && (
+            <p className="text-gray-400 text-xs mt-1">Enter a medication name to get a pharmacy recommendation</p>
+          )}
           {errors["pharmacy.pharmacyId"] && <p className="text-red-600 text-xs mt-1">{errors["pharmacy.pharmacyId"]}</p>}
         </div>
         <div>
@@ -252,7 +402,7 @@ export function OrderForm({ pharmacies, brands }: Props) {
         <Field label="Address Line 1" name="address1" value={address1} onChange={setAddress1} />
         <Field label="Address Line 2" name="address2" value={address2} onChange={setAddress2} />
         <Field label="City" name="city" value={city} onChange={setCity} />
-        <Field label="State" name="state" value={state} onChange={setState} placeholder="e.g. CA" />
+        <Field label="State" name="state" value={state} onChange={(v) => { setState(v); setRoutingMethod(null); }} placeholder="e.g. CA" />
         <Field label="ZIP" name="zip" value={zip} onChange={setZip} />
       </Section>
 

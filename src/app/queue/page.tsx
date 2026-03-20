@@ -1,4 +1,4 @@
-import { getReadyQueue } from "@/lib/actions";
+import { getReadyQueue, getRecentExports } from "@/lib/actions";
 import { timeAgo, getUrgencyTier } from "@/lib/format";
 import { PharmacyQueueGroup } from "@/components/pharmacy-queue-group";
 
@@ -10,6 +10,7 @@ interface QueueOrder {
   status: string;
   priority: string;
   medicationName: string;
+  pricingJson: string | null;
   createdAt: Date;
   brand: { name: string } | null;
   patient: { firstName: string; lastName: string };
@@ -30,6 +31,16 @@ export default async function QueuePage() {
   }
 
   const groups = Array.from(grouped.values());
+
+  // Fetch recent exports for each pharmacy
+  const exportsByPharmacy = new Map<string, { id: string; fileName: string; orderCount: number; createdAt: string }[]>();
+  await Promise.all(groups.map(async (g) => {
+    const exports = await getRecentExports(g.pharmacyId);
+    exportsByPharmacy.set(g.pharmacyId, exports.map((e) => ({
+      id: e.id, fileName: e.fileName, orderCount: e.orderCount, createdAt: e.createdAt.toISOString(),
+    })));
+  }));
+
   const urgentCount = orders.filter((o) => o.priority === "urgent" || o.priority === "high").length;
   const staleCount = orders.filter((o) => getUrgencyTier(o.createdAt) === "stale").length;
 
@@ -64,6 +75,7 @@ export default async function QueuePage() {
                 pharmacyName={group.pharmacyName}
                 hasUrgent={hasUrgent}
                 hasStale={hasStale}
+                recentExports={exportsByPharmacy.get(group.pharmacyId) || []}
                 orders={JSON.parse(JSON.stringify(group.orders.map((o) => {
                   return {
                     id: o.id,
@@ -71,6 +83,7 @@ export default async function QueuePage() {
                     medication: o.medicationName,
                     brand: o.brand?.name || null,
                     priority: o.priority,
+                    pricingJson: o.pricingJson,
                     age: timeAgo(o.createdAt),
                     urgency: getUrgencyTier(o.createdAt),
                     createdAt: o.createdAt.toISOString(),
