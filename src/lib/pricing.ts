@@ -1,46 +1,42 @@
-// Pricing data structure and utilities.
-// Pricing is informational only — does not affect workflow or send readiness.
+// Pricing utilities — currency, percent formatting, and verification constants.
 
-export interface OrderPricing {
-  gpoPrice: number;
-  retailEstimate: number;
-  savingsAbsolute: number;
-  savingsPercent: number;
-}
+// Standardized verification sources for MedicationPriceEntry.verificationSource
+export const VERIFICATION_SOURCES = {
+  MANUAL_UPDATE: "manual_update",
+  PHARMACY_CONFIRMED: "pharmacy_confirmed",
+  CONTRACT_IMPORT: "contract_import",
+  SYSTEM_IMPORT: "system_import",
+} as const;
 
-export function parsePricing(json: string | null | undefined): OrderPricing | null {
-  if (!json) return null;
-  try {
-    const parsed = JSON.parse(json);
-    if (typeof parsed.gpoPrice !== "number") return null;
-    return {
-      gpoPrice: parsed.gpoPrice,
-      retailEstimate: parsed.retailEstimate,
-      savingsAbsolute: parsed.savingsAbsolute,
-      savingsPercent: parsed.savingsPercent,
-    };
-  } catch {
-    return null;
-  }
+export type VerificationSource = (typeof VERIFICATION_SOURCES)[keyof typeof VERIFICATION_SOURCES];
+
+// Display labels for verification sources
+export const VERIFICATION_SOURCE_LABELS: Record<string, string> = {
+  manual_update: "Manual update",
+  pharmacy_confirmed: "Pharmacy confirmed",
+  contract_import: "Contract import",
+  system_import: "System import",
+};
+
+// Maps dosageForm to a human-readable pricing unit
+const FORM_UNIT_MAP: Record<string, string> = {
+  "Capsule": "capsule",
+  "Tablet": "tablet",
+  "Troche": "troche",
+  "Sublingual Tablet": "tablet",
+  "Injectable Solution": "vial",
+  "Topical Cream": "tube",
+  "Nasal Spray": "bottle",
+};
+
+export function getPricingUnit(dosageForm: string): string {
+  return FORM_UNIT_MAP[dosageForm] ?? "unit";
 }
 
 export function formatCurrency(amount: number): string {
-  return `$${amount.toFixed(2)}`;
+  return `$${amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 export function formatPercent(pct: number): string {
-  return `${Math.round(pct)}%`;
-}
-
-// Aggregate pricing for a batch of orders
-export function aggregatePricing(items: (OrderPricing | null)[]): { totalGpo: number; totalRetail: number; totalSavings: number; avgSavingsPercent: number } | null {
-  const valid = items.filter((p): p is OrderPricing => p !== null);
-  if (valid.length === 0) return null;
-
-  const totalGpo = valid.reduce((sum, p) => sum + p.gpoPrice, 0);
-  const totalRetail = valid.reduce((sum, p) => sum + p.retailEstimate, 0);
-  const totalSavings = totalRetail - totalGpo;
-  const avgSavingsPercent = totalRetail > 0 ? (totalSavings / totalRetail) * 100 : 0;
-
-  return { totalGpo, totalRetail, totalSavings, avgSavingsPercent };
+  return `${Math.round(pct * 100)}%`;
 }

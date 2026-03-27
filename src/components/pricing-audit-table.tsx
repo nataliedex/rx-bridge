@@ -3,21 +3,25 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { markPriceVerified, removeMedicationFromPharmacy } from "@/lib/actions";
-import { formatCurrency } from "@/lib/pricing";
+import { formatCurrency, getPricingUnit, VERIFICATION_SOURCE_LABELS } from "@/lib/pricing";
 import { UpdatePriceDrawer } from "./update-price-drawer";
 import { ConfirmAction } from "./confirm-action";
+import { NetworkSearchInput } from "./network-search-input";
 
 import type { AuditStatus } from "@/lib/actions";
 
 interface AuditRow {
   medicationId: string;
   medicationName: string;
+  medicationForm: string;
   pharmacyId: string;
   pharmacyName: string;
   priceEntryId: string | null;
   price: number | null;
+  sellPrice: number | null;
   effectiveDate: string | null;
   verifiedAt: string | null;
+  verificationSource: string | null;
   status: AuditStatus;
 }
 
@@ -36,13 +40,8 @@ const STATUS_STYLES: Record<AuditStatus, { label: string; bg: string; text: stri
   aging: { label: "Aging", bg: "bg-amber-100", text: "text-amber-700" },
   stale: { label: "Stale", bg: "bg-red-100", text: "text-red-700" },
   missing: { label: "Missing", bg: "bg-amber-100", text: "text-amber-700" },
+  missing_sell_price: { label: "No Sell Price", bg: "bg-purple-100", text: "text-purple-700" },
 };
-
-const FILTERS = [
-  { value: "all", label: "All" },
-  { value: "stale", label: "Stale & Aging" },
-  { value: "missing", label: "Missing" },
-] as const;
 
 function buildUrl(params: Record<string, string>) {
   const sp = new URLSearchParams();
@@ -50,7 +49,18 @@ function buildUrl(params: Record<string, string>) {
     if (v && v !== "all") sp.set(k, v);
   }
   const qs = sp.toString();
-  return `/network/audit${qs ? `?${qs}` : ""}`;
+  return `/medications/audit${qs ? `?${qs}` : ""}`;
+}
+
+function shortDate(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(2)}`;
+}
+
+function marginColor(pct: number): string {
+  if (pct > 0.25) return "text-green-700";
+  if (pct >= 0.10) return "text-amber-600";
+  return "text-red-600";
 }
 
 export function PricingAuditTable({
@@ -66,6 +76,7 @@ export function PricingAuditTable({
   const [editing, setEditing] = useState<{
     medicationId: string;
     medicationName: string;
+    medicationForm: string;
     pharmacyId: string;
     pharmacyName: string;
     currentPrice: number;
@@ -89,6 +100,7 @@ export function PricingAuditTable({
     setEditing({
       medicationId: row.medicationId,
       medicationName: row.medicationName,
+      medicationForm: row.medicationForm,
       pharmacyId: row.pharmacyId,
       pharmacyName: row.pharmacyName,
       currentPrice: row.price ?? 0,
@@ -101,118 +113,90 @@ export function PricingAuditTable({
     try {
       await markPriceVerified(priceEntryId);
       setJustVerified(priceEntryId);
-      setTimeout(() => {
-        setJustVerified(null);
-        router.refresh();
-      }, 1500);
-    } catch {
-      // row stays unverified
-    } finally {
-      setVerifying(null);
-    }
+      setTimeout(() => { setJustVerified(null); router.refresh(); }, 1500);
+    } catch { /* stay */ } finally { setVerifying(null); }
   }
 
   async function handleRemove() {
     if (!confirmRemove) return;
-    const key = `${confirmRemove.medicationId}:${confirmRemove.pharmacyId}`;
-    setRemovingKey(key);
+    setRemovingKey(`${confirmRemove.medicationId}:${confirmRemove.pharmacyId}`);
     try {
       await removeMedicationFromPharmacy(confirmRemove.medicationId, confirmRemove.pharmacyId);
       setConfirmRemove(null);
       router.refresh();
-    } catch {
-      // stay
-    } finally {
-      setRemovingKey(null);
-    }
+    } catch { /* stay */ } finally { setRemovingKey(null); }
   }
+
+  function handleRemoveFromDrawer() {
+    if (!editing) return;
+    setEditing(null);
+    setConfirmRemove({ medicationId: editing.medicationId, medicationName: editing.medicationName, pharmacyId: editing.pharmacyId, pharmacyName: editing.pharmacyName });
+  }
+
+  // Client-side filter for negative_margin (server doesn't handle this filter)
+  const displayRows = currentFilter === "negative_margin"
+    ? rows.filter((r) => r.price != null && r.sellPrice != null && r.sellPrice - r.price < 0)
+    : rows;
 
   const staleCount = rows.filter((r) => r.status === "stale" || r.status === "aging").length;
   const missingCount = rows.filter((r) => r.status === "missing").length;
+  const missingSellCount = rows.filter((r) => r.status === "missing_sell_price").length;
+  const negativeMarginCount = rows.filter((r) => r.price != null && r.sellPrice != null && r.sellPrice - r.price < 0).length;
   const hasFilters = currentSearch || currentPharmacy || currentMedication;
 
   return (
     <>
       {/* Fixed controls */}
       <div className="shrink-0">
-        {/* Summary cards */}
-        <div className="grid grid-cols-3 gap-4 mb-4">
-          <div className="bg-white border border-gray-200 rounded-lg p-4">
-            <p className="text-xs text-gray-400 uppercase tracking-wider">Total Entries</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{rows.length}</p>
-          </div>
-          <div className="bg-white border border-gray-200 rounded-lg p-4">
-            <p className="text-xs text-gray-400 uppercase tracking-wider">Stale / Aging</p>
-            <p className={`text-2xl font-bold mt-1 ${staleCount > 0 ? "text-red-600" : "text-gray-900"}`}>{staleCount}</p>
-          </div>
-          <div className="bg-white border border-gray-200 rounded-lg p-4">
-            <p className="text-xs text-gray-400 uppercase tracking-wider">Missing Prices</p>
-            <p className={`text-2xl font-bold mt-1 ${missingCount > 0 ? "text-amber-600" : "text-gray-900"}`}>{missingCount}</p>
-          </div>
+        {/* Summary cards — clickable filters */}
+        <div className="grid grid-cols-4 gap-3 mb-5">
+          {([
+            { filter: "all", label: "Total", value: rows.length, color: "text-gray-900", extra: null as string | null },
+            { filter: "stale", label: "Stale / Aging", value: staleCount, color: staleCount > 0 ? "text-red-600" : "text-gray-900", extra: null },
+            { filter: "missing", label: "Missing", value: missingCount, color: missingCount + missingSellCount > 0 ? "text-amber-600" : "text-gray-900", extra: missingSellCount > 0 ? `+${missingSellCount} no sell` : null },
+            { filter: "negative_margin", label: "Negative Margin", value: negativeMarginCount, color: negativeMarginCount > 0 ? "text-red-600" : "text-gray-900", extra: null },
+          ]).map((tile) => {
+            const active = currentFilter === tile.filter;
+            return (
+              <button key={tile.filter} onClick={() => navigate({ filter: tile.filter })}
+                className={`text-left rounded-lg p-4 transition-colors cursor-pointer ${
+                  active
+                    ? "bg-indigo-50 border-2 border-indigo-300"
+                    : "bg-white border border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                }`}>
+                <p className="text-xs text-gray-400 uppercase tracking-wider">{tile.label}</p>
+                <p className={`text-2xl font-bold mt-1 ${tile.color}`}>
+                  {tile.value}
+                  {tile.extra && <span className="text-sm font-normal text-purple-500 ml-1">{tile.extra}</span>}
+                </p>
+              </button>
+            );
+          })}
         </div>
 
         {/* Search + Dropdowns + Filter tabs */}
         <div className="flex flex-wrap items-center gap-3 mb-3">
-          <div className="relative">
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search medication or pharmacy..."
-              className="border border-gray-300 rounded-md pl-3 pr-8 py-1.5 text-sm w-72 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-            />
-            {search && (
-              <button type="button" onClick={() => setSearch("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs">
-                &#10005;
-              </button>
-            )}
-          </div>
-          <select
-            value={currentPharmacy}
-            onChange={(e) => navigate({ pharmacy: e.target.value })}
-            className="border border-gray-300 rounded-md px-3 py-1.5 text-sm"
-          >
+          <NetworkSearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search medication or pharmacy..."
+          />
+          <select value={currentPharmacy} onChange={(e) => navigate({ pharmacy: e.target.value })}
+            className="border border-gray-300 rounded-md px-3 py-1.5 text-sm">
             <option value="">All pharmacies</option>
-            {pharmacies.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
+            {pharmacies.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          <select
-            value={currentMedication}
-            onChange={(e) => navigate({ medication: e.target.value })}
-            className="border border-gray-300 rounded-md px-3 py-1.5 text-sm max-w-[220px]"
-          >
+          <select value={currentMedication} onChange={(e) => navigate({ medication: e.target.value })}
+            className="border border-gray-300 rounded-md px-3 py-1.5 text-sm max-w-[220px]">
             <option value="">All medications</option>
-            {medications.map((m) => (
-              <option key={m.id} value={m.id}>{m.name}</option>
-            ))}
+            {medications.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
           {hasFilters && (
             <button onClick={() => { setSearch(""); router.push(buildUrl({ filter: currentFilter })); }}
-              className="text-xs text-gray-500 hover:text-gray-700">
-              Clear
-            </button>
+              className="text-xs text-gray-500 hover:text-gray-700">Clear</button>
           )}
-
-          <div className="flex gap-1 ml-auto">
-            {FILTERS.map((f) => (
-              <button
-                key={f.value}
-                onClick={() => navigate({ filter: f.value })}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                  currentFilter === f.value
-                    ? "bg-indigo-600 text-white"
-                    : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"
-                }`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
         </div>
 
-        {/* Confirmation panel */}
         {confirmRemove && (
           <div className="mb-3">
             <ConfirmAction
@@ -228,9 +212,9 @@ export function PricingAuditTable({
       </div>
 
       {/* Data grid */}
-      {rows.length === 0 ? (
+      {displayRows.length === 0 ? (
         <div className="flex-1 flex items-center justify-center bg-white border border-gray-200 rounded-lg">
-          <p className="text-gray-400 text-sm">No entries match {hasFilters ? "these filters" : "this filter"}.</p>
+          <p className="text-gray-400 text-sm">No entries match {hasFilters || currentFilter !== "all" ? "these filters" : "this filter"}.</p>
         </div>
       ) : (
         <div className="flex-1 min-h-0 flex flex-col bg-white border border-gray-200 rounded-lg overflow-hidden">
@@ -238,93 +222,96 @@ export function PricingAuditTable({
           <div className="shrink-0 flex items-center text-[11px] font-medium text-gray-400 uppercase tracking-wider border-b border-gray-200 bg-gray-50">
             <div className="px-4 py-2.5 flex-[2]">Medication</div>
             <div className="px-4 py-2.5 flex-[1.5]">Pharmacy</div>
-            <div className="px-4 py-2.5 flex-[0.8] text-right">Price</div>
-            <div className="px-4 py-2.5 flex-[0.8] text-right">Effective</div>
-            <div className="px-4 py-2.5 flex-[0.8] text-right">Last Verified</div>
+            <div className="px-4 py-2.5 flex-[0.7] text-right">Cost</div>
+            <div className="px-4 py-2.5 flex-[0.7] text-right">Sell Price</div>
+            <div className="px-4 py-2.5 flex-[0.7] text-right">Margin</div>
             <div className="px-4 py-2.5 flex-[0.6] text-center">Status</div>
-            <div className="px-4 py-2.5 flex-[0.7] text-right">Action</div>
-            <div className="px-4 py-2.5 flex-[0.6] text-right">Remove</div>
+            <div className="px-4 py-2.5 flex-[0.5] text-right">Verify</div>
+            <div className="px-4 py-2.5 flex-[0.4] text-right">Edit</div>
           </div>
 
           {/* Scrollable rows */}
           <div className="flex-1 overflow-y-auto min-h-0">
-            {rows.map((row, idx) => {
+            {displayRows.map((row, idx) => {
               const style = STATUS_STYLES[row.status];
               const isMissing = row.status === "missing";
               const hasPrice = row.priceEntryId !== null;
               const isJustVerified = hasPrice && justVerified === row.priceEntryId;
+
+              // Margin computation
+              const hasMargin = row.price != null && row.sellPrice != null;
+              const margin = hasMargin ? row.sellPrice! - row.price! : null;
+              const marginPct = hasMargin && row.sellPrice! > 0 ? margin! / row.sellPrice! : null;
+
               return (
                 <div
                   key={`${row.medicationId}:${row.pharmacyId}`}
                   onClick={() => openDrawer(row)}
                   className={`flex items-center border-b border-gray-100 cursor-pointer transition-colors duration-100 hover:bg-indigo-50/50 ${idx % 2 === 1 ? "bg-gray-50/40" : ""}`}
                 >
-                  <div className="px-4 py-2.5 flex-[2] text-[13px] text-gray-900 truncate">{row.medicationName}</div>
-                  <div className="px-4 py-2.5 flex-[1.5] text-[13px] text-gray-600 truncate">{row.pharmacyName}</div>
-                  <div className="px-4 py-2.5 flex-[0.8] text-right text-[13px] font-medium text-gray-900">
-                    {hasPrice ? formatCurrency(row.price!) : <span className="text-gray-300">—</span>}
+                  <div className="px-4 py-2 flex-[2] text-[13px] text-gray-900 truncate">{row.medicationName}</div>
+                  <div className="px-4 py-2 flex-[1.5] text-[13px] text-gray-600 truncate">{row.pharmacyName}</div>
+
+                  {/* Cost */}
+                  <div className="px-4 py-2 flex-[0.7] text-right text-[13px] font-medium text-gray-900">
+                    {hasPrice ? <>{formatCurrency(row.price!)} <span className="text-[10px] font-normal text-gray-400">/ {getPricingUnit(row.medicationForm)}</span></> : <span className="text-gray-300">—</span>}
                   </div>
-                  <div className="px-4 py-2.5 flex-[0.8] text-right text-[11px] text-gray-400">
-                    {row.effectiveDate ? new Date(row.effectiveDate).toLocaleDateString() : <span className="text-gray-300">—</span>}
+
+                  {/* Sell Price */}
+                  <div className="px-4 py-2 flex-[0.7] text-right text-[13px] text-gray-700">
+                    {row.sellPrice != null ? <>{formatCurrency(row.sellPrice)} <span className="text-[10px] text-gray-400">/ {getPricingUnit(row.medicationForm)}</span></> : <span className="text-gray-300">—</span>}
                   </div>
-                  <div className="px-4 py-2.5 flex-[0.8] text-right text-[11px] text-gray-400">
-                    {isMissing ? (
+
+                  {/* Margin */}
+                  <div className={`px-4 py-2 flex-[0.7] text-right text-[12px] font-medium ${
+                    marginPct != null ? marginColor(marginPct) : ""
+                  }`}>
+                    {hasMargin && margin != null && marginPct != null ? (
+                      <>{formatCurrency(margin)} <span className="text-[10px] font-normal opacity-70">({(marginPct * 100).toFixed(0)}%)</span></>
+                    ) : (
                       <span className="text-gray-300">—</span>
-                    ) : isJustVerified ? (
-                      <span className="text-green-600 font-medium">Verified just now</span>
-                    ) : row.verifiedAt ? (
-                      new Date(row.verifiedAt).toLocaleDateString()
-                    ) : (
-                      <span className="text-gray-300">Never</span>
-                    )}
-                  </div>
-                  <div className="px-4 py-2.5 flex-[0.6] text-center">
-                    {isJustVerified ? (
-                      <span className="inline-block text-[10px] font-medium px-2 py-0.5 rounded bg-green-100 text-green-700">Fresh</span>
-                    ) : (
-                      <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded ${style.bg} ${style.text}`}>
-                        {style.label}
-                      </span>
                     )}
                   </div>
 
-                  {/* Action column — varies by status */}
-                  <div className="px-4 py-2.5 flex-[0.7] text-right" onClick={(e) => e.stopPropagation()}>
+                  {/* Status */}
+                  <div className="px-4 py-2 flex-[0.6] text-center">
+                    {isJustVerified ? (
+                      <>
+                        <span className="inline-block text-[10px] font-medium px-2 py-0.5 rounded bg-green-100 text-green-700">Fresh &#10003;</span>
+                        <p className="text-[10px] text-gray-300 mt-0.5 leading-none">Just now</p>
+                      </>
+                    ) : (
+                      <>
+                        <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded ${style.bg} ${style.text}`}>{style.label}</span>
+                        <p className="text-[10px] text-gray-300 mt-0.5 leading-none">
+                          {isMissing ? "No price set" : row.verifiedAt ? shortDate(row.verifiedAt) : "Never verified"}
+                        </p>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Verify */}
+                  <div className="px-4 py-2 flex-[0.5] text-right" onClick={(e) => e.stopPropagation()}>
                     {isMissing ? (
                       <button onClick={() => openDrawer(row)}
-                        className="text-[11px] text-indigo-600 hover:text-indigo-800 font-medium whitespace-nowrap">
-                        Add Price
-                      </button>
-                    ) : isJustVerified ? (
-                      <span className="text-[11px] text-green-600 font-medium">&#10003;</span>
-                    ) : row.status === "fresh" ? (
-                      <button onClick={(e) => handleVerify(e, row.priceEntryId!)}
+                        className="text-[11px] text-indigo-600 hover:text-indigo-800">Add Price</button>
+                    ) : (row.status === "aging" || row.status === "stale") && !isJustVerified ? (
+                      <button onClick={(e) => { e.stopPropagation(); handleVerify(e, row.priceEntryId!); }}
                         disabled={verifying === row.priceEntryId}
-                        className="text-[11px] text-gray-400 hover:text-green-600 font-medium disabled:opacity-50 whitespace-nowrap transition-colors">
-                        {verifying === row.priceEntryId ? "..." : "Re-verify"}
+                        className="text-[11px] text-green-600 hover:text-green-800 disabled:opacity-50">
+                        {verifying === row.priceEntryId ? "..." : "Verify"}
                       </button>
                     ) : (
-                      <button onClick={(e) => handleVerify(e, row.priceEntryId!)}
-                        disabled={verifying === row.priceEntryId}
-                        className="text-[11px] text-green-600 hover:text-green-800 font-medium disabled:opacity-50 whitespace-nowrap">
-                        {verifying === row.priceEntryId ? "..." : "Verify Price"}
-                      </button>
+                      <span className="text-[11px] text-gray-200">—</span>
                     )}
                   </div>
-
-                  {/* Remove column */}
-                  <div className="px-4 py-2.5 flex-[0.6] text-right" onClick={(e) => e.stopPropagation()}>
-                    {!isMissing && (
-                      <button
-                        onClick={() => setConfirmRemove({
-                          medicationId: row.medicationId,
-                          medicationName: row.medicationName,
-                          pharmacyId: row.pharmacyId,
-                          pharmacyName: row.pharmacyName,
-                        })}
-                        className="text-[11px] text-gray-400 hover:text-red-600 font-medium transition-colors">
-                        Remove
-                      </button>
+                  {/* Edit */}
+                  <div className="px-4 py-2 flex-[0.4] text-right" onClick={(e) => e.stopPropagation()}>
+                    {!isMissing ? (
+                      <button onClick={() => openDrawer(row)}
+                        className="text-[11px] text-indigo-600 hover:text-indigo-800">Update</button>
+                    ) : (
+                      <span className="text-[11px] text-gray-200">—</span>
                     )}
                   </div>
                 </div>
@@ -340,9 +327,11 @@ export function PricingAuditTable({
           onClose={() => setEditing(null)}
           medicationId={editing.medicationId}
           medicationName={editing.medicationName}
+          medicationForm={editing.medicationForm}
           pharmacyId={editing.pharmacyId}
           pharmacyName={editing.pharmacyName}
           currentPrice={editing.currentPrice}
+          onRemove={handleRemoveFromDrawer}
         />
       )}
     </>

@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { updateMedicationPrice } from "@/lib/actions";
-import { formatCurrency } from "@/lib/pricing";
+import { formatCurrency, getPricingUnit } from "@/lib/pricing";
 import { Drawer } from "./drawer";
 
 interface Props {
@@ -11,14 +11,16 @@ interface Props {
   onClose: () => void;
   medicationId: string;
   medicationName: string;
+  medicationForm?: string;
   pharmacyId: string;
   pharmacyName: string;
   currentPrice: number;
+  onRemove?: () => void;
 }
 
 const inputClass = "w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500";
 
-export function UpdatePriceDrawer({ open, onClose, medicationId, medicationName, pharmacyId, pharmacyName, currentPrice }: Props) {
+export function UpdatePriceDrawer({ open, onClose, medicationId, medicationName, medicationForm, pharmacyId, pharmacyName, currentPrice, onRemove }: Props) {
   const router = useRouter();
   const priceRef = useRef<HTMLInputElement>(null);
   const [newPrice, setNewPrice] = useState("");
@@ -85,7 +87,7 @@ export function UpdatePriceDrawer({ open, onClose, medicationId, medicationName,
             </div>
             <div>
               <p className="text-[10px] text-gray-400 uppercase tracking-wider">Current Price</p>
-              <p className="text-sm font-semibold text-gray-900">{formatCurrency(currentPrice)}</p>
+              <p className="text-sm font-semibold text-gray-900">{formatCurrency(currentPrice)}{medicationForm && <span className="text-xs font-normal text-gray-400"> / {getPricingUnit(medicationForm)}</span>}</p>
             </div>
           </div>
 
@@ -135,15 +137,26 @@ export function UpdatePriceDrawer({ open, onClose, medicationId, medicationName,
             />
           </div>
 
-          <div className="pt-4 border-t border-gray-100 flex gap-2">
-            <button onClick={handleSave} disabled={saving}
-              className="bg-indigo-600 text-white rounded-md px-4 py-2 text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors">
-              {saving ? "Saving..." : "Update Price"}
-            </button>
-            <button onClick={onClose} className="border border-gray-300 text-gray-700 rounded-md px-4 py-2 text-sm hover:bg-gray-50">
-              Cancel
-            </button>
+          <div className="pt-4 border-t border-gray-100">
+            <div className="flex gap-2">
+              <button onClick={handleSave} disabled={saving}
+                className="bg-indigo-600 text-white rounded-md px-4 py-2 text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors">
+                {saving ? "Saving..." : "Update Price"}
+              </button>
+              <button onClick={onClose} className="border border-gray-300 text-gray-700 rounded-md px-4 py-2 text-sm hover:bg-gray-50">
+                Cancel
+              </button>
+            </div>
+            <p className="text-[10px] text-gray-400 mt-2">Saving marks this price as verified today.</p>
           </div>
+
+          {onRemove && (
+            <div className="pt-3 mt-3 border-t border-gray-100">
+              <button onClick={onRemove} className="text-xs text-gray-400 hover:text-red-600 transition-colors">
+                Remove this price entry
+              </button>
+            </div>
+          )}
         </div>
       )}
     </Drawer>

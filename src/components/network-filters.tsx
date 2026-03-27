@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useEffect, useRef } from "react";
+import { NetworkSearchInput } from "./network-search-input";
 
 interface Props {
   currentSearch: string;
@@ -19,10 +20,10 @@ export function NetworkFilters({ currentSearch, currentPharmacy, pharmacies }: P
     if (s.trim()) params.set("search", s.trim());
     if (p) params.set("pharmacy", p);
     const qs = params.toString();
-    router.push(`/network${qs ? `?${qs}` : ""}`);
+    router.push(`/medications${qs ? `?${qs}` : ""}`);
   }
 
-  // Debounced search — navigates 300ms after user stops typing
+  // Debounced navigation on search change
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
@@ -37,28 +38,18 @@ export function NetworkFilters({ currentSearch, currentPharmacy, pharmacies }: P
 
   function handleClear() {
     setSearch("");
-    router.push("/network");
+    router.push("/medications");
   }
 
   const hasFilters = search || currentPharmacy;
 
   return (
     <div className="flex items-center gap-3 mb-4">
-      <div className="relative">
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search medication..."
-          className="border border-gray-300 rounded-md pl-3 pr-8 py-1.5 text-sm w-64 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-        />
-        {search && (
-          <button type="button" onClick={() => setSearch("")}
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs">
-            &#10005;
-          </button>
-        )}
-      </div>
+      <NetworkSearchInput
+        value={search}
+        onChange={setSearch}
+        placeholder="Search medication..."
+      />
       <select
         value={currentPharmacy}
         onChange={(e) => handlePharmacyChange(e.target.value)}

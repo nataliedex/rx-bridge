@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { TopNav } from "@/components/top-nav";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -17,17 +18,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <Link href="/orders" className="font-bold text-lg text-indigo-600">
                 Rx-Bridge
               </Link>
-              <div className="flex gap-6 text-sm">
-                <Link href="/queue" className="text-gray-600 hover:text-gray-900">
-                  Send Queue
-                </Link>
-                <Link href="/network" className="text-gray-600 hover:text-gray-900">
-                  Network
-                </Link>
-                <Link href="/settings" className="text-gray-600 hover:text-gray-900">
-                  Settings
-                </Link>
-              </div>
+              <TopNav />
             </div>
           </div>
         </nav>

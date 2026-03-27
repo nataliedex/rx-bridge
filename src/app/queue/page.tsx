@@ -1,4 +1,5 @@
 import { getReadyQueue, getRecentExports } from "@/lib/actions";
+import { prisma } from "@/lib/db";
 import { timeAgo, getUrgencyTier } from "@/lib/format";
 import { PharmacyQueueGroup } from "@/components/pharmacy-queue-group";
 
@@ -10,6 +11,7 @@ interface QueueOrder {
   status: string;
   priority: string;
   medicationName: string;
+  quantity: number | null;
   pricingJson: string | null;
   createdAt: Date;
   brand: { name: string } | null;
@@ -20,6 +22,22 @@ interface QueueOrder {
 
 export default async function QueuePage() {
   const orders = await getReadyQueue() as QueueOrder[];
+
+  // Look up sell prices and lowest pharmacy costs for margin computation
+  const medNames = [...new Set(orders.map((o) => o.medicationName))];
+  const medications = medNames.length > 0
+    ? await prisma.medication.findMany({
+        where: { name: { in: medNames } },
+        include: { priceHistory: { where: { endDate: null }, orderBy: { price: "asc" }, take: 1 } },
+      })
+    : [];
+
+  const sellPriceMap = new Map<string, number>();
+  const pharmacyCostMap = new Map<string, number>();
+  for (const m of medications) {
+    if (m.sellPrice != null) sellPriceMap.set(m.name, m.sellPrice);
+    if (m.priceHistory.length > 0) pharmacyCostMap.set(m.name, m.priceHistory[0].price);
+  }
 
   const grouped = new Map<string, { pharmacyId: string; pharmacyName: string; orders: QueueOrder[] }>();
   for (const order of orders) {
@@ -32,7 +50,6 @@ export default async function QueuePage() {
 
   const groups = Array.from(grouped.values());
 
-  // Fetch recent exports for each pharmacy
   const exportsByPharmacy = new Map<string, { id: string; fileName: string; orderCount: number; createdAt: string }[]>();
   await Promise.all(groups.map(async (g) => {
     const exports = await getRecentExports(g.pharmacyId);
@@ -68,6 +85,23 @@ export default async function QueuePage() {
             const hasUrgent = group.orders.some((o) => o.priority === "urgent" || o.priority === "high");
             const hasStale = group.orders.some((o) => getUrgencyTier(o.createdAt) === "stale");
 
+            // Compute batch economics
+            let batchRevenueCents = 0;
+            let batchCostCents = 0;
+            let hasEconomics = false;
+            let missingSellCount = 0;
+            let missingCostCount = 0;
+
+            for (const o of group.orders) {
+              const qty = o.quantity ?? 1;
+              const sell = sellPriceMap.get(o.medicationName);
+              const cost = pharmacyCostMap.get(o.medicationName);
+              if (sell != null) { batchRevenueCents += Math.round(sell * qty * 100); hasEconomics = true; }
+              else { missingSellCount++; }
+              if (cost != null) { batchCostCents += Math.round(cost * qty * 100); }
+              else { missingCostCount++; }
+            }
+
             return (
               <PharmacyQueueGroup
                 key={group.pharmacyId}
@@ -76,14 +110,17 @@ export default async function QueuePage() {
                 hasUrgent={hasUrgent}
                 hasStale={hasStale}
                 recentExports={exportsByPharmacy.get(group.pharmacyId) || []}
+                batchRevenueCents={hasEconomics ? batchRevenueCents : null}
+                batchCostCents={hasEconomics ? batchCostCents : null}
+                missingCostCount={missingCostCount}
+                missingSellCount={missingSellCount}
                 orders={JSON.parse(JSON.stringify(group.orders.map((o) => {
                   return {
                     id: o.id,
-                    patient: `${o.patient.firstName} ${o.patient.lastName}`,
+                    patient: `${o.patient.lastName}, ${o.patient.firstName}`,
                     medication: o.medicationName,
                     brand: o.brand?.name || null,
                     priority: o.priority,
-                    pricingJson: o.pricingJson,
                     age: timeAgo(o.createdAt),
                     urgency: getUrgencyTier(o.createdAt),
                     createdAt: o.createdAt.toISOString(),

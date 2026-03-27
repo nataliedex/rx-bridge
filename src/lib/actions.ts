@@ -31,7 +31,12 @@ export async function getDashboardStats() {
 
 export async function getOrders(search?: string, statusFilter?: string, pharmacyId?: string) {
   const where: Record<string, unknown> = {};
-  if (statusFilter && statusFilter !== "all") where.status = statusFilter;
+  if (statusFilter && statusFilter !== "all") {
+    where.status = statusFilter;
+  } else {
+    // Default view excludes completed and rejected — active operations only
+    where.status = { notIn: ["completed", "rejected"] };
+  }
   if (pharmacyId) where.pharmacyId = pharmacyId;
   if (search) {
     // Split search into words so "Michael Davis" matches firstName=Michael + lastName=Davis
@@ -80,7 +85,7 @@ export async function searchSuggestions(query: string) {
   const suggestions: { type: string; value: string }[] = [];
 
   for (const o of orders) {
-    const fullName = `${o.patient.firstName} ${o.patient.lastName}`;
+    const fullName = `${o.patient.lastName}, ${o.patient.firstName}`;
     if (fullName.toLowerCase().includes(query.toLowerCase()) && !seen.has(`patient:${fullName}`)) {
       seen.add(`patient:${fullName}`);
       suggestions.push({ type: "Patient", value: fullName });
@@ -123,6 +128,218 @@ export async function getPharmacies() {
 
 export async function getBrands() {
   return prisma.brand.findMany({ where: { active: true }, orderBy: { name: "asc" } });
+}
+
+export async function getAllBrandsForAdmin() {
+  const brands = await prisma.brand.findMany({
+    include: { _count: { select: { orders: true } } },
+    orderBy: { name: "asc" },
+  });
+  return brands.map((b) => ({
+    id: b.id,
+    name: b.name,
+    active: b.active,
+    contactName: b.contactName,
+    email: b.email,
+    phone: b.phone,
+    website: b.website,
+    notes: b.notes,
+    orderCount: b._count.orders,
+  }));
+}
+
+export async function createBrand(data: {
+  name: string; contactName?: string; email?: string; phone?: string; website?: string; notes?: string;
+}) {
+  if (!data.name.trim()) throw new Error("Brand name is required");
+  return prisma.brand.create({
+    data: {
+      name: data.name.trim(),
+      contactName: data.contactName?.trim() || undefined,
+      email: data.email?.trim() || undefined,
+      phone: data.phone?.trim() || undefined,
+      website: data.website?.trim() || undefined,
+      notes: data.notes?.trim() || undefined,
+    },
+  });
+}
+
+export async function updateBrand(id: string, data: {
+  contactName?: string; email?: string; phone?: string; website?: string; notes?: string;
+}) {
+  return prisma.brand.update({
+    where: { id },
+    data: {
+      contactName: data.contactName?.trim() || null,
+      email: data.email?.trim() || null,
+      phone: data.phone?.trim() || null,
+      website: data.website?.trim() || null,
+      notes: data.notes?.trim() || null,
+    },
+  });
+}
+
+export async function updatePharmacyContact(id: string, data: {
+  contactName?: string; phone?: string; email?: string; fax?: string;
+}) {
+  return prisma.pharmacy.update({
+    where: { id },
+    data: {
+      contactName: data.contactName?.trim() || null,
+      phone: data.phone?.trim() || null,
+      email: data.email?.trim() || null,
+      fax: data.fax?.trim() || null,
+    },
+  });
+}
+
+export async function getBrandDetail(id: string) {
+  const brand = await prisma.brand.findUnique({
+    where: { id },
+    include: {
+      _count: { select: { orders: true } },
+    },
+  });
+  if (!brand) return null;
+
+  // Top medications by order volume
+  const medGroups = await prisma.order.groupBy({
+    by: ["medicationName"],
+    where: { brandId: id },
+    _count: true,
+    orderBy: { _count: { medicationName: "desc" } },
+    take: 10,
+  });
+
+  // Pharmacy distribution
+  const pharmGroups = await prisma.order.groupBy({
+    by: ["pharmacyId"],
+    where: { brandId: id },
+    _count: true,
+    orderBy: { _count: { pharmacyId: "desc" } },
+  });
+  const pharmIds = pharmGroups.map((g) => g.pharmacyId);
+  const pharmacies = pharmIds.length > 0
+    ? await prisma.pharmacy.findMany({ where: { id: { in: pharmIds } }, select: { id: true, name: true } })
+    : [];
+  const pharmMap = new Map(pharmacies.map((p) => [p.id, p.name]));
+
+  // Fetch orders with fields needed for analytics
+  const orders = await prisma.order.findMany({
+    where: { brandId: id },
+    select: { medicationName: true, quantity: true, pharmacyId: true, createdAt: true },
+    orderBy: { createdAt: "asc" },
+  });
+  const medNames = [...new Set(orders.map((o) => o.medicationName))];
+  const meds = medNames.length > 0
+    ? await prisma.medication.findMany({ where: { name: { in: medNames } }, select: { name: true, sellPrice: true } })
+    : [];
+  const sellPriceMap = new Map(meds.filter((m) => m.sellPrice != null).map((m) => [m.name, m.sellPrice!]));
+
+  // Also get lowest pharmacy costs for margin calc
+  const medPrices = medNames.length > 0
+    ? await prisma.medication.findMany({
+        where: { name: { in: medNames } },
+        include: { priceHistory: { where: { endDate: null }, orderBy: { price: "asc" }, take: 1 } },
+      })
+    : [];
+  const lowestCostMap = new Map(
+    medPrices.filter((m) => m.priceHistory.length > 0).map((m) => [m.name, m.priceHistory[0].price])
+  );
+
+  let totalRevenue = 0;
+  let totalCost = 0;
+  let validOrderCount = 0;
+  let missingCostCount = 0;
+  const marginPcts: number[] = [];
+
+  for (const o of orders) {
+    const sp = sellPriceMap.get(o.medicationName);
+    const cost = lowestCostMap.get(o.medicationName);
+    const qty = o.quantity ?? 1;
+    if (sp != null) totalRevenue += sp * qty;
+    if (sp != null && cost != null) {
+      totalCost += cost * qty;
+      validOrderCount++;
+      marginPcts.push((sp - cost) / sp);
+    } else if (sp != null && cost == null) {
+      missingCostCount++;
+    }
+  }
+
+  const totalProfit = totalRevenue - totalCost;
+  const avgMarginPct = marginPcts.length > 0
+    ? marginPcts.reduce((a, b) => a + b, 0) / marginPcts.length
+    : null;
+
+  // Per-medication economics
+  const medEconomics = medGroups.map((g) => {
+    const sp = sellPriceMap.get(g.medicationName);
+    const cost = lowestCostMap.get(g.medicationName);
+    const revenue = sp != null ? sp * g._count : null;
+    const medCost = cost != null ? cost * g._count : null;
+    const profit = revenue != null && medCost != null ? revenue - medCost : null;
+    const marginPct = sp != null && cost != null && sp > 0 ? (sp - cost) / sp : null;
+    return {
+      name: g.medicationName,
+      count: g._count,
+      sellPrice: sp ?? null,
+      pharmacyCost: cost ?? null,
+      revenue,
+      cost: medCost,
+      profit,
+      marginPct,
+    };
+  });
+
+  // Raw order data for analytics transformations
+  const rawOrders = orders.map((o) => ({
+    medicationName: o.medicationName,
+    quantity: o.quantity,
+    pharmacyId: o.pharmacyId,
+    pharmacyName: pharmMap.get(o.pharmacyId) ?? "Unknown",
+    sellPrice: sellPriceMap.get(o.medicationName) ?? null,
+    pharmacyCost: lowestCostMap.get(o.medicationName) ?? null,
+    createdAt: o.createdAt.toISOString(),
+  }));
+
+  // Recent activity: last 10 orders + filled refills
+  const recentOrders = await prisma.order.findMany({
+    where: { brandId: id },
+    select: { id: true, medicationName: true, status: true, createdAt: true, patient: { select: { firstName: true, lastName: true } }, pharmacy: { select: { name: true } } },
+    orderBy: { createdAt: "desc" },
+    take: 10,
+  });
+  const recentRefills = await prisma.refillRequest.findMany({
+    where: { brandId: id, status: "filled" },
+    select: { id: true, medicationName: true, status: true, filledAt: true, patient: { select: { firstName: true, lastName: true } }, pharmacy: { select: { name: true } } },
+    orderBy: { filledAt: "desc" },
+    take: 10,
+  });
+
+  const recentActivity = [
+    ...recentOrders.map((o) => ({ type: "order" as const, id: o.id, medication: o.medicationName, patient: `${o.patient.lastName}, ${o.patient.firstName}`, pharmacy: o.pharmacy.name, status: o.status, date: o.createdAt.toISOString() })),
+    ...recentRefills.map((r) => ({ type: "refill" as const, id: r.id, medication: r.medicationName, patient: `${r.patient.lastName}, ${r.patient.firstName}`, pharmacy: r.pharmacy.name, status: r.status, date: (r.filledAt ?? new Date()).toISOString() })),
+  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 10);
+
+  return {
+    ...brand,
+    totalOrders: brand._count.orders,
+    totalRevenue,
+    totalCost,
+    totalProfit,
+    avgMarginPct,
+    validOrderCount,
+    missingCostCount,
+    topMedications: medEconomics,
+    pharmacyDistribution: pharmGroups.map((g) => ({
+      pharmacyId: g.pharmacyId,
+      pharmacyName: pharmMap.get(g.pharmacyId) ?? "Unknown",
+      count: g._count,
+    })),
+    rawOrders,
+    recentActivity,
+  };
 }
 
 // --- Brand-Pharmacy config ---
@@ -449,8 +666,14 @@ export async function updateInternalNotes(orderId: string, notes: string) {
 // When status changes to needs_clarification with a note, auto-create a human issue.
 export async function updateOrderStatus(orderId: string, status: OrderStatus, note?: string) {
   const parsed = statusUpdateSchema.parse({ orderId, status, note });
+  const updateData: Record<string, unknown> = { status: parsed.status };
+  // Set completedAt when entering completed status (only if not already set)
+  if (parsed.status === "completed") {
+    const existing = await prisma.order.findUnique({ where: { id: parsed.orderId }, select: { completedAt: true } });
+    if (!existing?.completedAt) updateData.completedAt = new Date();
+  }
   const [order] = await Promise.all([
-    prisma.order.update({ where: { id: parsed.orderId }, data: { status: parsed.status } }),
+    prisma.order.update({ where: { id: parsed.orderId }, data: updateData }),
     prisma.orderStatusHistory.create({
       data: { orderId: parsed.orderId, status: parsed.status, note: parsed.note || undefined },
     }),
@@ -505,6 +728,19 @@ export async function addToQueue(orderId: string) {
     }),
   ]);
   return updated;
+}
+
+export async function bulkAddToQueue(orderIds: string[]) {
+  const results: { orderId: string; success: boolean; error?: string }[] = [];
+  for (const orderId of orderIds) {
+    try {
+      await addToQueue(orderId);
+      results.push({ orderId, success: true });
+    } catch (err) {
+      results.push({ orderId, success: false, error: err instanceof Error ? err.message : "Unknown error" });
+    }
+  }
+  return results;
 }
 
 // --- Issue actions ---
@@ -683,25 +919,79 @@ export async function getMedications(search?: string, pharmacyId?: string) {
     where.priceHistory = { some: { pharmacyId, endDate: null } };
   }
 
-  const meds = await prisma.medication.findMany({
-    where,
-    include: {
-      priceHistory: {
-        where: { endDate: null }, // active prices only
-        include: { pharmacy: { select: { id: true, name: true } } },
+  const [meds, totalPharmacies] = await Promise.all([
+    prisma.medication.findMany({
+      where,
+      include: {
+        priceHistory: {
+          where: { endDate: null },
+          include: { pharmacy: { select: { id: true, name: true } } },
+        },
       },
-    },
-    orderBy: { name: "asc" },
-  });
+      orderBy: { name: "asc" },
+    }),
+    prisma.pharmacy.count({ where: { archivedAt: null } }),
+  ]);
+
+  const FRESH_DAYS = 30;
+  const AGING_DAYS = 60;
 
   return meds.map((m) => {
     const active = pharmacyId ? m.priceHistory.filter((p) => p.pharmacyId === pharmacyId) : m.priceHistory;
+    const lowestPrice = active.length > 0 ? Math.min(...active.map((p) => p.price)) : null;
+    const bestMargin = m.sellPrice != null && lowestPrice != null ? m.sellPrice - lowestPrice : null;
+
+    // Pricing health
+    let staleCount = 0;
+    let agingCount = 0;
+    for (const p of m.priceHistory) {
+      if (!p.verifiedAt) { staleCount++; continue; }
+      const days = (Date.now() - p.verifiedAt.getTime()) / (1000 * 60 * 60 * 24);
+      if (days > AGING_DAYS) staleCount++;
+      else if (days > FRESH_DAYS) agingCount++;
+    }
+    const missingCount = totalPharmacies - m.priceHistory.length;
+
     return {
       ...m,
       pharmacyCount: m.priceHistory.length,
-      lowestPrice: active.length > 0 ? Math.min(...active.map((p) => p.price)) : null,
+      lowestPrice,
+      sellPrice: m.sellPrice,
+      bestMargin,
+      staleCount,
+      agingCount,
+      missingCount: missingCount > 0 ? missingCount : 0,
     };
   });
+}
+
+export async function networkSearchSuggestions(query: string) {
+  if (!query || query.length < 2) return [];
+
+  const [medications, pharmacies] = await Promise.all([
+    prisma.medication.findMany({
+      where: { name: { contains: query } },
+      select: { name: true },
+      take: 8,
+    }),
+    prisma.pharmacy.findMany({
+      where: { name: { contains: query }, archivedAt: null },
+      select: { name: true },
+      take: 5,
+    }),
+  ]);
+
+  const seen = new Set<string>();
+  const results: { type: string; value: string }[] = [];
+
+  for (const m of medications) {
+    if (!seen.has(m.name)) { seen.add(m.name); results.push({ type: "Medication", value: m.name }); }
+  }
+  for (const p of pharmacies) {
+    if (!seen.has(p.name)) { seen.add(p.name); results.push({ type: "Pharmacy", value: p.name }); }
+  }
+
+  return results;
 }
 
 export async function getNetworkPharmacies() {
@@ -819,7 +1109,7 @@ export async function updateMedicationPrice(medicationId: string, pharmacyId: st
     data: { endDate: effDate },
   });
 
-  // Create new active entry
+  // Create new active entry — mark as verified since the user just confirmed the price
   return prisma.medicationPriceEntry.create({
     data: {
       medicationId,
@@ -827,23 +1117,28 @@ export async function updateMedicationPrice(medicationId: string, pharmacyId: st
       price: newPrice,
       effectiveDate: effDate,
       notes: notes?.trim() || undefined,
+      verifiedAt: new Date(),
+      verificationSource: "manual_update",
     },
   });
 }
 
 // --- Pricing Audit ---
 
-export type AuditStatus = "fresh" | "aging" | "stale" | "missing";
+export type AuditStatus = "fresh" | "aging" | "stale" | "missing" | "missing_sell_price";
 
 interface AuditRow {
   medicationId: string;
   medicationName: string;
+  medicationForm: string;
   pharmacyId: string;
   pharmacyName: string;
   priceEntryId: string | null;
   price: number | null;
+  sellPrice: number | null;
   effectiveDate: string | null;
   verifiedAt: string | null;
+  verificationSource: string | null;
   status: AuditStatus;
 }
 
@@ -895,18 +1190,22 @@ export async function getPricingAudit(opts?: {
 
       const entry = priceMap.get(`${med.id}:${pharm.id}`);
       if (entry) {
-        const status = computeAuditStatus(entry.verifiedAt);
+        const freshness = computeAuditStatus(entry.verifiedAt);
+        const status: AuditStatus = med.sellPrice == null ? "missing_sell_price" : freshness;
         if (filter === "missing") continue;
-        if (filter === "stale" && status === "fresh") continue;
+        if (filter === "stale" && freshness === "fresh" && status !== "missing_sell_price") continue;
         rows.push({
           medicationId: med.id,
           medicationName: med.name,
+          medicationForm: med.form,
           pharmacyId: pharm.id,
           pharmacyName: pharm.name,
           priceEntryId: entry.id,
           price: entry.price,
+          sellPrice: med.sellPrice,
           effectiveDate: entry.effectiveDate.toISOString(),
           verifiedAt: entry.verifiedAt?.toISOString() ?? null,
+          verificationSource: entry.verificationSource ?? null,
           status,
         });
       } else {
@@ -914,12 +1213,15 @@ export async function getPricingAudit(opts?: {
         rows.push({
           medicationId: med.id,
           medicationName: med.name,
+          medicationForm: med.form,
           pharmacyId: pharm.id,
           pharmacyName: pharm.name,
           priceEntryId: null,
           price: null,
+          sellPrice: med.sellPrice,
           effectiveDate: null,
           verifiedAt: null,
+          verificationSource: null,
           status: "missing",
         });
       }
@@ -927,7 +1229,7 @@ export async function getPricingAudit(opts?: {
   }
 
   // Sort: stale/missing first, then aging, then fresh
-  const order: Record<AuditStatus, number> = { missing: 0, stale: 1, aging: 2, fresh: 3 };
+  const order: Record<AuditStatus, number> = { missing: 0, missing_sell_price: 1, stale: 2, aging: 3, fresh: 4 };
   rows.sort((a, b) => order[a.status] - order[b.status] || a.medicationName.localeCompare(b.medicationName));
 
   return rows;
@@ -938,7 +1240,7 @@ export async function markPriceVerified(priceEntryId: string, source?: string) {
     where: { id: priceEntryId },
     data: {
       verifiedAt: new Date(),
-      verificationSource: source?.trim() || undefined,
+      verificationSource: source?.trim() || "manual_update",
     },
   });
 }
@@ -1015,193 +1317,98 @@ export async function getPharmacyRouting(
   return computePharmacyRouting(candidates, patientState, policy);
 }
 
-// --- Providers ---
+// --- Correction Requests ---
 
-export async function getProviders() {
-  return prisma.provider.findMany({ orderBy: { name: "asc" } });
-}
+export async function createCorrectionRequest(orderId: string, data: {
+  reason: string;
+  requestedFrom: string;
+  message?: string;
+}) {
+  if (!data.reason.trim()) throw new Error("Reason is required");
+  if (!data.requestedFrom.trim()) throw new Error("Recipient is required");
 
-export async function createProvider(data: { name: string; notes?: string }) {
-  if (!data.name.trim()) throw new Error("Provider name is required");
-  return prisma.provider.create({ data: { name: data.name.trim(), notes: data.notes?.trim() || undefined } });
-}
-
-export async function getProviderPrices(medicationId: string) {
-  return prisma.providerMedicationPrice.findMany({
-    where: { medicationId, endDate: null },
-    include: { provider: true },
-    orderBy: { price: "asc" },
-  });
-}
-
-export async function getProviderPriceForMedication(medicationName: string) {
-  // Find active provider prices for medications matching this name
-  const prices = await prisma.providerMedicationPrice.findMany({
-    where: {
-      endDate: null,
-      medication: { name: { contains: medicationName } },
-    },
-    include: { provider: true, medication: true },
-    orderBy: { price: "desc" }, // highest provider price = the revenue rate
-  });
-  return prices[0] ?? null;
-}
-
-export async function updateProviderPrice(providerId: string, medicationId: string, newPrice: number, notes?: string) {
-  const now = new Date();
-
-  // Close current active entry
-  await prisma.providerMedicationPrice.updateMany({
-    where: { providerId, medicationId, endDate: null },
-    data: { endDate: now },
-  });
-
-  return prisma.providerMedicationPrice.create({
+  const request = await prisma.correctionRequest.create({
     data: {
-      providerId,
-      medicationId,
-      price: newPrice,
-      effectiveDate: now,
-      notes: notes?.trim() || undefined,
+      orderId,
+      reason: data.reason.trim(),
+      requestedFrom: data.requestedFrom,
+      message: data.message?.trim() || undefined,
     },
   });
-}
 
-export async function getProviderPricingTable(providerId?: string) {
-  const where: Record<string, unknown> = { endDate: null };
-  if (providerId) where.providerId = providerId;
-
-  const prices = await prisma.providerMedicationPrice.findMany({
-    where,
-    include: {
-      provider: { select: { id: true, name: true } },
-      medication: { select: { id: true, name: true, form: true, strength: true } },
-    },
-    orderBy: [{ medication: { name: "asc" } }, { price: "desc" }],
+  // Update order status to correction_requested
+  await prisma.order.update({
+    where: { id: orderId },
+    data: { status: "correction_requested" },
   });
 
-  return prices.map((p) => ({
-    id: p.id,
-    providerId: p.provider.id,
-    providerName: p.provider.name,
-    medicationId: p.medication.id,
-    medicationName: p.medication.name,
-    form: p.medication.form,
-    strength: p.medication.strength,
-    price: p.price,
-    effectiveDate: p.effectiveDate.toISOString(),
-    notes: p.notes,
-  }));
+  await prisma.orderStatusHistory.create({
+    data: {
+      orderId,
+      status: "correction_requested",
+      note: `Correction requested from ${data.requestedFrom}: ${data.reason}`,
+    },
+  });
+
+  return request;
 }
 
-// --- Provider Pricing Audit ---
+export async function resolveCorrectionRequest(requestId: string, note?: string) {
+  const request = await prisma.correctionRequest.update({
+    where: { id: requestId },
+    data: {
+      status: "resolved",
+      resolvedAt: new Date(),
+      resolutionNote: note?.trim() || undefined,
+    },
+  });
 
-export type ProviderAuditStatus = "fresh" | "aging" | "stale" | "missing";
+  // Check if there are other open correction requests
+  const openRequests = await prisma.correctionRequest.count({
+    where: { orderId: request.orderId, status: "open" },
+  });
 
-interface ProviderAuditRow {
-  medicationId: string;
-  medicationName: string;
-  providerId: string;
-  providerName: string;
-  priceEntryId: string | null;
-  price: number | null;
-  effectiveDate: string | null;
-  verifiedAt: string | null;
-  status: ProviderAuditStatus;
-}
-
-export async function getProviderPricingAudit(opts?: {
-  filter?: "all" | "stale" | "missing";
-  search?: string;
-  providerId?: string;
-  medicationId?: string;
-}): Promise<ProviderAuditRow[]> {
-  const filter = opts?.filter || "all";
-  const search = opts?.search?.toLowerCase();
-
-  const [medications, providers, activePrices] = await Promise.all([
-    prisma.medication.findMany({ orderBy: { name: "asc" } }),
-    prisma.provider.findMany({ orderBy: { name: "asc" } }),
-    prisma.providerMedicationPrice.findMany({
-      where: { endDate: null },
-      include: { provider: true, medication: true },
-    }),
-  ]);
-
-  const priceMap = new Map<string, typeof activePrices[number]>();
-  for (const p of activePrices) {
-    priceMap.set(`${p.medicationId}:${p.providerId}`, p);
+  // If no more open requests, move order back to under_review
+  if (openRequests === 0) {
+    await prisma.order.update({
+      where: { id: request.orderId },
+      data: { status: "under_review" },
+    });
+    await prisma.orderStatusHistory.create({
+      data: {
+        orderId: request.orderId,
+        status: "under_review",
+        note: "Correction received — returned to review",
+      },
+    });
   }
 
-  const filteredMeds = opts?.medicationId ? medications.filter((m) => m.id === opts.medicationId) : medications;
-  const filteredProviders = opts?.providerId ? providers.filter((p) => p.id === opts.providerId) : providers;
-
-  const rows: ProviderAuditRow[] = [];
-
-  for (const med of filteredMeds) {
-    for (const prov of filteredProviders) {
-      if (search) {
-        const words = search.split(/\s+/).filter(Boolean);
-        const combined = `${med.name} ${prov.name}`.toLowerCase();
-        if (!words.every((w) => combined.includes(w))) continue;
-      }
-
-      const entry = priceMap.get(`${med.id}:${prov.id}`);
-      if (entry) {
-        const status = computeAuditStatus(entry.verifiedAt);
-        if (filter === "missing") continue;
-        if (filter === "stale" && status === "fresh") continue;
-        rows.push({
-          medicationId: med.id,
-          medicationName: med.name,
-          providerId: prov.id,
-          providerName: prov.name,
-          priceEntryId: entry.id,
-          price: entry.price,
-          effectiveDate: entry.effectiveDate.toISOString(),
-          verifiedAt: entry.verifiedAt?.toISOString() ?? null,
-          status,
-        });
-      } else {
-        if (filter === "stale") continue;
-        rows.push({
-          medicationId: med.id,
-          medicationName: med.name,
-          providerId: prov.id,
-          providerName: prov.name,
-          priceEntryId: null,
-          price: null,
-          effectiveDate: null,
-          verifiedAt: null,
-          status: "missing",
-        });
-      }
-    }
-  }
-
-  const order: Record<ProviderAuditStatus, number> = { missing: 0, stale: 1, aging: 2, fresh: 3 };
-  rows.sort((a, b) => order[a.status] - order[b.status] || a.medicationName.localeCompare(b.medicationName));
-
-  return rows;
+  return request;
 }
 
-export async function markProviderPriceVerified(priceEntryId: string, source?: string) {
-  return prisma.providerMedicationPrice.update({
-    where: { id: priceEntryId },
-    data: {
-      verifiedAt: new Date(),
-      verificationSource: source?.trim() || undefined,
-    },
+export async function getCorrectionRequests(orderId: string) {
+  return prisma.correctionRequest.findMany({
+    where: { orderId },
+    orderBy: { createdAt: "desc" },
   });
 }
 
-export async function removeProviderMedicationPrice(providerId: string, medicationId: string) {
-  const result = await prisma.providerMedicationPrice.updateMany({
-    where: { providerId, medicationId, endDate: null },
-    data: { endDate: new Date() },
+// --- Sell Price ---
+
+export async function updateSellPrice(medicationId: string, sellPrice: number) {
+  if (sellPrice <= 0) throw new Error("Sell price must be positive");
+  return prisma.medication.update({
+    where: { id: medicationId },
+    data: { sellPrice },
   });
-  if (result.count === 0) throw new Error("No active pricing to remove");
-  return result;
+}
+
+export async function getSellPriceForMedication(medicationName: string) {
+  const med = await prisma.medication.findFirst({
+    where: { name: { contains: medicationName }, sellPrice: { not: null } },
+    select: { sellPrice: true },
+  });
+  return med?.sellPrice ?? null;
 }
 
 // --- Routing Policy ---
@@ -1215,6 +1422,41 @@ export async function getRoutingPolicyAction() {
 export async function updateRoutingPolicyAction(updates: Record<string, unknown>) {
   const { updateRoutingPolicy } = await import("./routing-config");
   return updateRoutingPolicy(updates as any);
+}
+
+export async function getPharmacyDetail(id: string) {
+  const pharmacy = await prisma.pharmacy.findUnique({
+    where: { id },
+    include: {
+      medicationPriceHistory: {
+        where: { endDate: null },
+        include: { medication: true },
+        orderBy: { medication: { name: "asc" } },
+      },
+      _count: { select: { orders: true } },
+    },
+  });
+  if (!pharmacy) return null;
+
+  // Order volume by brand
+  const ordersByBrand = await prisma.order.groupBy({
+    by: ["brandId"],
+    where: { pharmacyId: id },
+    _count: true,
+  });
+  const brandIds = ordersByBrand.map((o) => o.brandId).filter(Boolean) as string[];
+  const brands = brandIds.length > 0 ? await prisma.brand.findMany({ where: { id: { in: brandIds } }, select: { id: true, name: true } }) : [];
+  const brandMap = new Map(brands.map((b) => [b.id, b.name]));
+
+  return {
+    ...pharmacy,
+    totalOrders: pharmacy._count.orders,
+    ordersByBrand: ordersByBrand.map((o) => ({
+      brandId: o.brandId,
+      brandName: o.brandId ? brandMap.get(o.brandId) ?? "Unknown" : "No brand",
+      count: o._count,
+    })),
+  };
 }
 
 // --- Deactivation / Archival ---

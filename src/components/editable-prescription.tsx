@@ -13,9 +13,10 @@ interface Props {
     refills: number; daysSupply: number | null; icd10: string | null; rxNotes: string | null;
   };
   issues: IssueRef[];
+  readOnly?: boolean;
 }
 
-export function EditablePrescription({ orderId, data, issues }: Props) {
+export function EditablePrescription({ orderId, data, issues, readOnly }: Props) {
   const router = useRouter();
   const sectionRef = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState(false);
@@ -43,12 +44,13 @@ export function EditablePrescription({ orderId, data, issues }: Props) {
 
   // Listen for open-edit events from issue links
   useEffect(() => {
+    if (readOnly) return;
     const el = sectionRef.current;
     if (!el) return;
     const handler = () => { setEditing(true); setSaved(false); };
     el.addEventListener("open-edit", handler);
     return () => el.removeEventListener("open-edit", handler);
-  }, []);
+  }, [readOnly]);
 
   function handleCancel() {
     setEditing(false); setError(""); setSaved(false);
@@ -82,7 +84,7 @@ export function EditablePrescription({ orderId, data, issues }: Props) {
 
   return (
     <div ref={sectionRef} id="section-prescription" className={`bg-white border rounded-lg p-6 scroll-mt-20 ${sectionBorderClass(issueCount > 0)}`}>
-      <SectionHeader title="Prescription" editing={editing} issueCount={issueCount} onEdit={() => { setEditing(true); setSaved(false); }} />
+      <SectionHeader title="Prescription" editing={editing} issueCount={issueCount} onEdit={() => { setEditing(true); setSaved(false); }} readOnly={readOnly} />
       {error && <p className="text-red-600 text-xs mb-3">{error}</p>}
 
       {saved && <PostSaveIssuePrompt sectionLabel="Prescription" issues={sectionIssues} resolvedIds={resolvedIds} autoResolved={autoResolved} remainingHumanIssues={remainingHumanIssues} onResolve={handleResolve} />}

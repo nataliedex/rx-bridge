@@ -17,11 +17,16 @@ model Brand {
   id               String   @id @default(cuid())
   name             String
   active           Boolean  @default(true)
+  contactName      String?
+  email            String?
+  phone            String?
+  website          String?
   notes            String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
   orders           Order[]
   pharmacyConfigs  BrandPharmacyConfig[]
+  refillRequests   RefillRequest[]
 }
 
 model BrandPharmacyConfig {
@@ -54,7 +59,8 @@ model Patient {
   zip        String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
-  orders     Order[]
+  orders         Order[]
+  refillRequests RefillRequest[]
 }
 
 model Prescriber {
@@ -93,41 +99,17 @@ model Pharmacy {
   exportBatches    ExportBatch[]
   brandConfigs     BrandPharmacyConfig[]
   medicationPriceHistory MedicationPriceEntry[]
-}
-
-model Provider {
-  id        String   @id @default(cuid())
-  name      String
-  notes     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  priceHistory ProviderMedicationPrice[]
-}
-
-model ProviderMedicationPrice {
-  id                 String    @id @default(cuid())
-  providerId         String
-  medicationId       String
-  price              Float
-  effectiveDate      DateTime  @default(now())
-  endDate            DateTime? // null = currently active
-  notes              String?
-  verifiedAt         DateTime?
-  verificationSource String?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  provider           Provider   @relation(fields: [providerId], references: [id])
-  medication         Medication @relation(fields: [medicationId], references: [id])
+  refillRequests   RefillRequest[]
 }
 
 model Medication {
-  id        String   @id @default(cuid())
-  name      String
-  form      String
-  strength  String
-  createdAt DateTime @default(now())
+  id         String   @id @default(cuid())
+  name       String
+  form       String
+  strength   String
+  sellPrice  Float?   // Rx-Bridge negotiated sell price — same for all brands
+  createdAt  DateTime @default(now())
   priceHistory MedicationPriceEntry[]
-  providerPriceHistory ProviderMedicationPrice[]
 }
 
 model MedicationPriceEntry {
@@ -139,7 +121,7 @@ model MedicationPriceEntry {
   endDate            DateTime? // null = currently active
   notes              String?
   verifiedAt         DateTime? // last verification timestamp
-  verificationSource String?   // e.g. "contract", "pharmacy call", "GPO portal"
+  verificationSource String?   // "manual_update" | "pharmacy_confirmed" | "contract_import" | "system_import"
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   medication         Medication @relation(fields: [medicationId], references: [id])
@@ -182,6 +164,7 @@ model Order {
 
   rawPayload     String?
 
+  completedAt    DateTime? // set when order reaches completed status
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -189,9 +172,11 @@ model Order {
   patient        Patient       @relation(fields: [patientId], references: [id])
   prescriber     Prescriber    @relation(fields: [prescriberId], references: [id])
   pharmacy       Pharmacy      @relation(fields: [pharmacyId], references: [id])
-  statusHistory  OrderStatusHistory[]
-  issues         Issue[]
-  transmissions  OrderTransmission[]
+  statusHistory      OrderStatusHistory[]
+  issues             Issue[]
+  transmissions      OrderTransmission[]
+  correctionRequests CorrectionRequest[]
+  refillRequests     RefillRequest[]
 }
 
 model OrderStatusHistory {
@@ -220,6 +205,19 @@ model Issue {
   order          Order     @relation(fields: [orderId], references: [id])
 }
 
+model CorrectionRequest {
+  id            String    @id @default(cuid())
+  orderId       String
+  reason        String    // summary of what needs correcting
+  requestedFrom String   // "provider" | "clinician" | "brand"
+  message       String?   // detailed message to the recipient
+  status        String    @default("open") // open | resolved
+  resolvedAt    DateTime?
+  resolutionNote String?
+  createdAt     DateTime  @default(now())
+  order         Order     @relation(fields: [orderId], references: [id])
+}
+
 model OrderTransmission {
   id              String       @id @default(cuid())
   orderId         String
@@ -243,4 +241,43 @@ model ExportBatch {
   createdAt     DateTime            @default(now())
   pharmacy      Pharmacy            @relation(fields: [pharmacyId], references: [id])
   transmissions OrderTransmission[]
+}
+
+model RefillRequest {
+  id                String    @id @default(cuid())
+  orderId           String    // the original prescription/order being refilled
+  brandId           String?
+  patientId         String
+  pharmacyId        String
+  medicationName    String
+  quantity          Int?
+  notes             String?
+
+  status            String    @default("pending_validation")
+  source            String    @default("api") // brand_portal | api | internal_ops
+  idempotencyKey    String?   @unique
+
+  requestedByUserId String?
+  requestedByName   String?
+  requestedByEmail  String?
+
+  rejectionCode     String?
+  rejectionReason   String?
+
+  // Pharmacy fill data
+  pharmacyOrderId   String?
+  quantityDispensed Int?
+  pharmacyCostCents Int?
+  sellPriceCents    Int?
+
+  createdAt         DateTime  @default(now())
+  validatedAt       DateTime?
+  sentToPharmacyAt  DateTime?
+  filledAt          DateTime?
+  cancelledAt       DateTime?
+
+  order             Order     @relation(fields: [orderId], references: [id])
+  brand             Brand?    @relation(fields: [brandId], references: [id])
+  patient           Patient   @relation(fields: [patientId], references: [id])
+  pharmacy          Pharmacy  @relation(fields: [pharmacyId], references: [id])
 }

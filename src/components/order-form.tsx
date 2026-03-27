@@ -6,6 +6,7 @@ import { createOrder, getBrandPharmacyConfigs, getPharmacyRouting } from "@/lib/
 import { createOrderSchema } from "@/lib/validators/order";
 import type { Pharmacy, Brand } from "@prisma/client";
 import type { RoutingResult } from "@/lib/routing";
+import { formatPhone } from "@/lib/format";
 
 interface PharmacyConfigItem {
   pharmacyId: string;
@@ -346,8 +347,8 @@ export function OrderForm({ pharmacies, brands }: Props) {
               <p className="text-[11px] text-red-600 mt-0.5">{routing.reason}</p>
               <div className="flex items-center gap-3 mt-1.5 pt-1.5 border-t border-red-100">
                 <span className="text-[10px] text-red-500">Next steps:</span>
-                <a href="/network" className="text-[10px] text-indigo-600 hover:text-indigo-800 font-medium">Add pricing</a>
-                <a href="/network/pharmacies" className="text-[10px] text-indigo-600 hover:text-indigo-800 font-medium">Check service states</a>
+                <a href="/medications" className="text-[10px] text-indigo-600 hover:text-indigo-800 font-medium">Add pricing</a>
+                <a href="/partnerships/pharmacies" className="text-[10px] text-indigo-600 hover:text-indigo-800 font-medium">Check service states</a>
                 <span className="text-[10px] text-gray-400">or select a pharmacy manually above</span>
               </div>
             </div>
@@ -397,7 +398,7 @@ export function OrderForm({ pharmacies, brands }: Props) {
         <Field label="First Name" name="firstName" required value={firstName} onChange={setFirstName} error={errors["patient.firstName"]} />
         <Field label="Last Name" name="lastName" required value={lastName} onChange={setLastName} error={errors["patient.lastName"]} />
         <Field label="Date of Birth" name="dob" type="date" required value={dob} onChange={setDob} error={errors["patient.dob"]} />
-        <Field label="Phone" name="patientPhone" type="tel" value={patientPhone} onChange={setPatientPhone} hint="Required by most pharmacies" />
+        <Field label="Phone" name="patientPhone" type="tel" value={formatPhone(patientPhone)} onChange={(v) => setPatientPhone(v.replace(/\D/g, "").slice(0, 10))} hint="Required by most pharmacies" />
         <Field label="Email" name="patientEmail" type="email" value={patientEmail} onChange={setPatientEmail} error={errors["patient.email"]} />
         <Field label="Address Line 1" name="address1" value={address1} onChange={setAddress1} />
         <Field label="Address Line 2" name="address2" value={address2} onChange={setAddress2} />
@@ -410,8 +411,8 @@ export function OrderForm({ pharmacies, brands }: Props) {
         <Field label="Prescriber Name" name="prescriberName" required value={prescriberName} onChange={setPrescriberName} error={errors["prescriber.name"]} />
         <Field label="NPI" name="npi" required value={npi} onChange={setNpi} error={errors["prescriber.npi"]} placeholder="10-digit NPI" hint="National Provider Identifier — required for all Rx" />
         <Field label="Clinic Name" name="clinicName" value={clinicName} onChange={setClinicName} />
-        <Field label="Phone" name="prescriberPhone" type="tel" value={prescriberPhone} onChange={setPrescriberPhone} />
-        <Field label="Fax" name="fax" type="tel" value={fax} onChange={setFax} hint="Preferred contact method for most pharmacies" />
+        <Field label="Phone" name="prescriberPhone" type="tel" value={formatPhone(prescriberPhone)} onChange={(v) => setPrescriberPhone(v.replace(/\D/g, "").slice(0, 10))} />
+        <Field label="Fax" name="fax" type="tel" value={formatPhone(fax)} onChange={(v) => setFax(v.replace(/\D/g, "").slice(0, 10))} hint="Preferred contact method for most pharmacies" />
         <Field label="Email" name="prescriberEmail" type="email" value={prescriberEmail} onChange={setPrescriberEmail} error={errors["prescriber.email"]} />
         <Field label="Address" name="prescriberAddress" value={prescriberAddress} onChange={setPrescriberAddress} />
       </Section>

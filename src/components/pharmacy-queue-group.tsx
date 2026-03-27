@@ -6,7 +6,7 @@ import Link from "next/link";
 import { bulkSendToPharmacy } from "@/lib/actions";
 import type { UrgencyTier } from "@/lib/format";
 import { LifefileExportButton } from "./lifefile-export-button";
-import { parsePricing, aggregatePricing, formatCurrency, formatPercent } from "@/lib/pricing";
+import { formatCurrency, formatPercent } from "@/lib/pricing";
 
 interface QueueOrderRow {
   id: string;
@@ -14,7 +14,6 @@ interface QueueOrderRow {
   medication: string;
   brand: string | null;
   priority: string;
-  pricingJson: string | null;
   age: string;
   urgency: UrgencyTier;
   createdAt: string;
@@ -34,6 +33,10 @@ interface Props {
   hasStale: boolean;
   orders: QueueOrderRow[];
   recentExports: ExportBatchRecord[];
+  batchRevenueCents: number | null;
+  batchCostCents: number | null;
+  missingCostCount?: number;
+  missingSellCount?: number;
 }
 
 const PRIORITY_SORT: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
@@ -51,7 +54,7 @@ const URGENCY_TEXT: Record<UrgencyTier, string> = {
   stale: "text-red-500 font-medium",
 };
 
-export function PharmacyQueueGroup({ pharmacyId, pharmacyName, hasUrgent, hasStale, orders, recentExports }: Props) {
+export function PharmacyQueueGroup({ pharmacyId, pharmacyName, hasUrgent, hasStale, orders, recentExports, batchRevenueCents, batchCostCents, missingCostCount = 0, missingSellCount = 0 }: Props) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [sending, setSending] = useState(false);
@@ -118,9 +121,16 @@ export function PharmacyQueueGroup({ pharmacyId, pharmacyName, hasUrgent, hasSta
   const allRemainingIds = sorted.map((o) => o.id);
   const sendLabel = selected.size > 0 ? `Send ${selected.size} selected` : `Send all orders`;
 
+  // Batch economics
+  const hasEconomics = batchRevenueCents != null && batchRevenueCents > 0;
+  const marginCents = hasEconomics && batchCostCents != null ? batchRevenueCents! - batchCostCents : null;
+  const marginPct = hasEconomics && marginCents != null && batchRevenueCents! > 0
+    ? marginCents / batchRevenueCents!
+    : null;
+
   return (
     <div className="border border-green-200 rounded-lg overflow-hidden">
-      {/* Header — green tint */}
+      {/* Header */}
       <div className="border-b border-green-200 px-4 py-3 flex justify-between items-center bg-green-50">
         <div className="flex items-center gap-3">
           <div className={`w-2 h-8 rounded-full ${hasUrgent ? "bg-red-500" : hasStale ? "bg-orange-400" : "bg-green-500"}`} />
@@ -167,20 +177,30 @@ export function PharmacyQueueGroup({ pharmacyId, pharmacyName, hasUrgent, hasSta
         </div>
       )}
 
-      {/* Pricing summary */}
-      {(() => {
-        const pricingItems = sorted.map((o) => parsePricing(o.pricingJson));
-        const agg = aggregatePricing(pricingItems);
-        if (!agg) return null;
-        return (
-          <div className="px-4 py-2 bg-white border-b border-green-100 flex items-center gap-6 text-xs">
+      {/* Batch economics */}
+      {hasEconomics && (
+        <div className="px-4 py-2 bg-white border-b border-green-100">
+          <div className="flex items-center gap-6 text-xs">
             <span className="text-gray-500">Batch total:</span>
-            <span className="text-gray-400 line-through">{formatCurrency(agg.totalRetail)}</span>
-            <span className="font-semibold text-gray-900">{formatCurrency(agg.totalGpo)}</span>
-            <span className="text-green-700 font-medium">Save {formatCurrency(agg.totalSavings)} ({formatPercent(agg.avgSavingsPercent)})</span>
+            <span className="text-gray-900">Brand pays <span className="font-semibold">{formatCurrency(batchRevenueCents! / 100)}</span></span>
+            {batchCostCents != null && batchCostCents > 0 && (
+              <span className="text-gray-500">Pharmacy cost <span className="font-medium">{formatCurrency(batchCostCents / 100)}</span></span>
+            )}
+            {marginCents != null && marginPct != null && (
+              <span className={`font-medium ${marginCents >= 0 ? "text-green-700" : "text-red-600"}`}>
+                Rx-Bridge margin {formatCurrency(marginCents / 100)} ({formatPercent(marginPct)})
+              </span>
+            )}
           </div>
-        );
-      })()}
+          {(missingCostCount > 0 || missingSellCount > 0) && (
+            <p className="text-[10px] text-amber-600 mt-1">
+              {missingSellCount > 0 && `${missingSellCount} order${missingSellCount !== 1 ? "s" : ""} missing sell price. `}
+              {missingCostCount > 0 && `Pharmacy cost unavailable for ${missingCostCount} item${missingCostCount !== 1 ? "s" : ""}.`}
+              {(missingCostCount > 0 || missingSellCount > 0) && " Margin may be incomplete."}
+            </p>
+          )}
+        </div>
+      )}
 
       <table className="min-w-full divide-y divide-gray-100 bg-white">
         <thead>

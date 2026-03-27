@@ -15,15 +15,16 @@ interface Props {
 // Allowed forward transitions from each stage.
 // "needs_clarification" and "rejected" are always available as exception paths.
 const TRANSITIONS: Record<OrderStatus, OrderStatus[]> = {
-  draft:                ["under_review", "needs_clarification", "rejected"],
-  submitted:            ["under_review", "needs_clarification", "rejected"],
-  under_review:         ["approved", "needs_clarification", "rejected"],
-  needs_clarification:  ["under_review", "approved", "rejected"],
-  approved:             ["queued", "needs_clarification", "rejected"],
-  queued:               ["sent_to_pharmacy", "needs_clarification", "rejected"],
-  sent_to_pharmacy:     ["completed", "needs_clarification", "rejected"],
-  completed:            [],
-  rejected:             [],
+  draft:                  ["under_review", "needs_clarification", "correction_requested", "rejected"],
+  submitted:              ["under_review", "needs_clarification", "correction_requested", "rejected"],
+  under_review:           ["approved", "needs_clarification", "correction_requested", "rejected"],
+  needs_clarification:    ["under_review", "approved", "correction_requested", "rejected"],
+  correction_requested:   ["under_review", "rejected"],
+  approved:               ["queued", "needs_clarification", "rejected"],
+  queued:                 ["sent_to_pharmacy", "needs_clarification", "rejected"],
+  sent_to_pharmacy:       ["completed", "needs_clarification", "rejected"],
+  completed:              [],
+  rejected:               [],
 };
 
 // Stages that require no blocking issues

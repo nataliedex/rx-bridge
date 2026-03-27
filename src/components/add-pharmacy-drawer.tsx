@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createNetworkPharmacy } from "@/lib/actions";
+import { formatPhone } from "@/lib/format";
 import { Drawer } from "./drawer";
 
 const US_STATES = [
@@ -19,12 +20,6 @@ interface Props {
 
 const inputClass = "w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500";
 
-function formatPhone(value: string): string {
-  const digits = value.replace(/\D/g, "").slice(0, 10);
-  if (digits.length <= 3) return digits;
-  if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
-  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
-}
 
 export function AddPharmacyDrawer({ open, onClose }: Props) {
   const router = useRouter();

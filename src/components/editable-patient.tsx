@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { updatePatient, resolveIssue } from "@/lib/actions";
 import { EditField, ViewRow, SectionHeader, SaveBar, SavedBanner, PostSaveIssuePrompt, sectionBorderClass, type IssueRef } from "./section-edit-primitives";
+import { formatPhone } from "@/lib/format";
 
 interface Props {
   orderId: string;
@@ -13,9 +14,10 @@ interface Props {
     address1: string | null; address2: string | null; city: string | null; state: string | null; zip: string | null;
   };
   issues: IssueRef[];
+  readOnly?: boolean;
 }
 
-export function EditablePatient({ orderId, data, issues }: Props) {
+export function EditablePatient({ orderId, data, issues, readOnly }: Props) {
   const router = useRouter();
   const sectionRef = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState(false);
@@ -42,12 +44,13 @@ export function EditablePatient({ orderId, data, issues }: Props) {
   const issueFields = new Set(sectionIssues.map((i) => i.fieldPath).filter(Boolean));
 
   useEffect(() => {
+    if (readOnly) return;
     const el = sectionRef.current;
     if (!el) return;
     const handler = () => { setEditing(true); setSaved(false); };
     el.addEventListener("open-edit", handler);
     return () => el.removeEventListener("open-edit", handler);
-  }, []);
+  }, [readOnly]);
 
   function handleCancel() {
     setEditing(false); setError(""); setSaved(false);
@@ -76,7 +79,7 @@ export function EditablePatient({ orderId, data, issues }: Props) {
 
   return (
     <div ref={sectionRef} id="section-patient" className={`bg-white border rounded-lg p-6 scroll-mt-20 ${sectionBorderClass(issueCount > 0)}`}>
-      <SectionHeader title="Patient" editing={editing} issueCount={issueCount} onEdit={() => { setEditing(true); setSaved(false); }} />
+      <SectionHeader title="Patient" editing={editing} issueCount={issueCount} onEdit={() => { setEditing(true); setSaved(false); }} readOnly={readOnly} />
       {error && <p className="text-red-600 text-xs mb-3">{error}</p>}
 
       {saved && <PostSaveIssuePrompt sectionLabel="Patient" issues={sectionIssues} resolvedIds={resolvedIds} autoResolved={autoResolved} remainingHumanIssues={remainingHumanIssues} onResolve={handleResolve} />}
@@ -90,7 +93,7 @@ export function EditablePatient({ orderId, data, issues }: Props) {
             <EditField label="Date of Birth" value={dob} onChange={setDob} type="date" fieldPath="patient.dob" hasIssue={issueFields.has("patient.dob")} />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <EditField label="Phone" value={phone} onChange={setPhone} type="tel" fieldPath="patient.phone" hasIssue={issueFields.has("patient.phone")} />
+            <EditField label="Phone" value={formatPhone(phone)} onChange={(v) => setPhone(v.replace(/\D/g, "").slice(0, 10))} type="tel" fieldPath="patient.phone" hasIssue={issueFields.has("patient.phone")} />
             <EditField label="Email" value={email} onChange={setEmail} type="email" fieldPath="patient.email" hasIssue={issueFields.has("patient.email")} />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -106,9 +109,9 @@ export function EditablePatient({ orderId, data, issues }: Props) {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <ViewRow label="Name" value={`${data.firstName} ${data.lastName}`} fieldPath="patient.firstName" />
+          <ViewRow label="Name" value={`${data.lastName}, ${data.firstName}`} fieldPath="patient.firstName" />
           <ViewRow label="DOB" value={data.dob} fieldPath="patient.dob" />
-          <ViewRow label="Phone" value={data.phone} fieldPath="patient.phone" />
+          <ViewRow label="Phone" value={formatPhone(data.phone)} fieldPath="patient.phone" />
           <ViewRow label="Email" value={data.email} fieldPath="patient.email" />
           <ViewRow label="Address" value={addressDisplay} fieldPath="patient.address1" />
         </div>

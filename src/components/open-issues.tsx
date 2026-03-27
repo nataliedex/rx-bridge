@@ -22,6 +22,8 @@ interface IssueItem {
 interface Props {
   issues: IssueItem[];
   sendReadiness: string;
+  isInbound?: boolean;
+  onRequestCorrection?: (reason: string) => void;
 }
 
 function getSection(fieldPath: string | null): string {
@@ -47,7 +49,7 @@ function triggerEditMode(fieldPath: string) {
   }
 }
 
-export function OpenIssues({ issues, sendReadiness }: Props) {
+export function OpenIssues({ issues, sendReadiness, isInbound, onRequestCorrection }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
@@ -100,23 +102,31 @@ export function OpenIssues({ issues, sendReadiness }: Props) {
         <div className={`flex items-start gap-3 px-3 py-2 rounded-md border bg-white ${
           issue.severity === "blocking" ? "border-red-200" : issue.severity === "warning" ? "border-amber-200" : "border-gray-200"
         }`}>
-          <input type="checkbox" checked={false} disabled={loading === issue.id}
-            onChange={() => isSystem && hasField ? handleGoToField(issue.fieldPath!) : setConfirmingId(issue.id)}
-            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 shrink-0" />
+          {!isInbound && (
+            <input type="checkbox" checked={false} disabled={loading === issue.id}
+              onChange={() => isSystem && hasField ? handleGoToField(issue.fieldPath!) : setConfirmingId(issue.id)}
+              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 shrink-0" />
+          )}
           <div className="flex-1 min-w-0">
             <p className="text-[13px] font-medium text-gray-900">{issue.title}</p>
             <div className="flex items-center gap-2 mt-0.5">
               {isSystem ? (
-                <span className="text-[10px] text-gray-400">Resolves after save</span>
+                <span className="text-[10px] text-gray-400">{isInbound ? "Requires correction from source" : "Resolves after save"}</span>
               ) : (
                 <span className="text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded font-medium">
                   {ISSUE_SOURCE_LABELS[issue.source as IssueSource] || issue.source}
                 </span>
               )}
-              {hasField && (
+              {!isInbound && hasField && (
                 <button onClick={() => handleGoToField(issue.fieldPath!)}
                   className="text-[10px] text-indigo-500 hover:text-indigo-700 hover:underline">
                   Fix
+                </button>
+              )}
+              {isInbound && onRequestCorrection && (
+                <button onClick={() => onRequestCorrection(issue.title)}
+                  className="text-[10px] text-purple-600 hover:text-purple-800 hover:underline font-medium">
+                  Request Correction
                 </button>
               )}
             </div>
@@ -126,7 +136,7 @@ export function OpenIssues({ issues, sendReadiness }: Props) {
           }`} />
         </div>
 
-        {isConfirming && (
+        {!isInbound && isConfirming && (
           <div className="ml-7 mt-1 mb-1 p-2.5 bg-amber-50 border border-amber-200 rounded text-xs">
             <p className="text-amber-800 font-medium mb-2">Has this been addressed?</p>
             <div className="flex gap-2">

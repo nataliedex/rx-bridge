@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getOrder } from "@/lib/actions";
 import { transformOrder } from "@/lib/transformers/pipeline";
 import { SEND_READINESS_LABELS, isSendReadinessRelevant } from "@/lib/types";
+import { formatPhone } from "@/lib/format";
 import { JsonExportToggle } from "@/components/json-export-toggle";
 
 export const dynamic = "force-dynamic";
@@ -60,7 +61,7 @@ export default async function ExportPage({ params }: Props) {
               <h2 className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-2 border-b border-gray-200 pb-1">Patient</h2>
               <p className="font-semibold">{packet.patient.fullName}</p>
               <p className="text-sm text-gray-600">DOB: {packet.patient.dob}</p>
-              {packet.patient.phone && <p className="text-sm text-gray-600">Tel: {packet.patient.phone}</p>}
+              {packet.patient.phone && <p className="text-sm text-gray-600">Tel: {formatPhone(packet.patient.phone)}</p>}
               {packet.patient.email && <p className="text-sm text-gray-600">{packet.patient.email}</p>}
               {packet.patient.address && <p className="text-sm text-gray-600">{packet.patient.address}</p>}
             </div>
@@ -69,8 +70,8 @@ export default async function ExportPage({ params }: Props) {
               <p className="font-semibold">{packet.prescriber.name}</p>
               <p className="text-sm text-gray-600">NPI: {packet.prescriber.npi}</p>
               {packet.prescriber.clinic && <p className="text-sm text-gray-600">{packet.prescriber.clinic}</p>}
-              {packet.prescriber.phone && <p className="text-sm text-gray-600">Tel: {packet.prescriber.phone}</p>}
-              {packet.prescriber.fax && <p className="text-sm text-gray-600">Fax: {packet.prescriber.fax}</p>}
+              {packet.prescriber.phone && <p className="text-sm text-gray-600">Tel: {formatPhone(packet.prescriber.phone)}</p>}
+              {packet.prescriber.fax && <p className="text-sm text-gray-600">Fax: {formatPhone(packet.prescriber.fax)}</p>}
             </div>
           </div>
 
@@ -120,7 +121,7 @@ export default async function ExportPage({ params }: Props) {
           <div className="mb-6">
             <h2 className="text-xs font-bold uppercase text-gray-400 tracking-wider mb-2 border-b border-gray-200 pb-1">Dispensing Pharmacy</h2>
             <p className="font-semibold">{packet.pharmacy.name}</p>
-            {packet.pharmacy.fax && <p className="text-sm text-gray-600">Fax: {packet.pharmacy.fax}</p>}
+            {packet.pharmacy.fax && <p className="text-sm text-gray-600">Fax: {formatPhone(packet.pharmacy.fax)}</p>}
             {packet.pharmacy.email && <p className="text-sm text-gray-600">{packet.pharmacy.email}</p>}
           </div>
 

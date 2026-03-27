@@ -65,6 +65,7 @@ export const statusUpdateSchema = z.object({
     "submitted",
     "under_review",
     "needs_clarification",
+    "correction_requested",
     "approved",
     "queued",
     "sent_to_pharmacy",

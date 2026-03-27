@@ -12,9 +12,10 @@ interface Props {
   pharmacyName: string;
   openIssueCount: number;
   alreadySent: boolean;
+  openCorrectionCount?: number;
 }
 
-export function WorkflowBanner({ orderId, sendReadiness, orderStatus, pharmacyName, openIssueCount, alreadySent }: Props) {
+export function WorkflowBanner({ orderId, sendReadiness, orderStatus, pharmacyName, openIssueCount, alreadySent, openCorrectionCount = 0 }: Props) {
   const router = useRouter();
   const [acting, setActing] = useState(false);
   const [error, setError] = useState("");
@@ -61,6 +62,19 @@ export function WorkflowBanner({ orderId, sendReadiness, orderStatus, pharmacyNa
     return (
       <div className="rounded-lg p-4 mb-6 bg-red-50 border border-red-200">
         <h2 className="text-sm font-semibold text-red-800">Order rejected</h2>
+      </div>
+    );
+  }
+
+  if (orderStatus === "correction_requested") {
+    return (
+      <div className="rounded-lg p-4 mb-6 bg-purple-50 border border-purple-200">
+        <h2 className="text-sm font-semibold text-purple-800">Waiting on corrected order</h2>
+        <p className="text-xs text-purple-700 mt-0.5">
+          {openCorrectionCount > 0
+            ? `${openCorrectionCount} correction request${openCorrectionCount !== 1 ? "s" : ""} pending. This order can continue once updated information is received.`
+            : "A correction request was sent. This order can continue once updated information is received."}
+        </p>
       </div>
     );
   }

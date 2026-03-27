@@ -5,6 +5,7 @@ export const ORDER_STATUSES = [
   "submitted",
   "under_review",
   "needs_clarification",
+  "correction_requested",
   "approved",
   "queued",
   "sent_to_pharmacy",
@@ -19,9 +20,10 @@ export const STATUS_LABELS: Record<OrderStatus, string> = {
   submitted: "Submitted",
   under_review: "Under Review",
   needs_clarification: "Needs Clarification",
+  correction_requested: "Correction Requested",
   approved: "Approved",
   queued: "Queued",
-  sent_to_pharmacy: "Sent",
+  sent_to_pharmacy: "At Pharmacy",
   completed: "Completed",
   rejected: "Rejected",
 };
@@ -32,6 +34,7 @@ export const STATUS_COLORS: Record<OrderStatus, string> = {
   submitted: "text-gray-500",
   under_review: "text-gray-500",
   needs_clarification: "bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded",
+  correction_requested: "bg-purple-50 text-purple-700 px-1.5 py-0.5 rounded",
   approved: "text-gray-500",
   queued: "text-gray-500",
   sent_to_pharmacy: "text-gray-500",
@@ -77,6 +80,10 @@ export function getNextStep(status: string, sendReadiness: string): { label: str
 
   if (status === "needs_clarification") {
     return { label: "Review", color: "bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-semibold" };
+  }
+
+  if (status === "correction_requested") {
+    return { label: "Awaiting Correction", color: "bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded font-semibold" };
   }
 
   if (status === "approved") {
@@ -132,6 +139,11 @@ export const ORDER_SOURCE_LABELS: Record<OrderSource, string> = {
 const POST_SEND_STATUSES: Set<string> = new Set(["sent_to_pharmacy", "completed", "rejected"]);
 export function isSendReadinessRelevant(status: string): boolean {
   return !POST_SEND_STATUSES.has(status);
+}
+
+// Inbound orders (EHR/API) cannot have their clinical data edited by Rx-Bridge.
+export function isInboundOrder(orderSource: string): boolean {
+  return orderSource === "ehr" || orderSource === "api";
 }
 
 // --- Pharmacy requirements config ---

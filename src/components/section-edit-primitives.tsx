@@ -32,13 +32,16 @@ export function ViewRow({ label, value, fieldPath }: { label: string; value?: st
   );
 }
 
-export function SectionHeader({ title, editing, issueCount, onEdit }: {
-  title: string; editing: boolean; issueCount: number; onEdit: () => void;
+export function SectionHeader({ title, editing, issueCount, onEdit, readOnly }: {
+  title: string; editing: boolean; issueCount: number; onEdit: () => void; readOnly?: boolean;
 }) {
   return (
     <div className="flex justify-between items-center mb-4">
       <div className="flex items-center gap-2">
         <h2 className="text-lg font-medium">{title}</h2>
+        {readOnly && (
+          <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded font-medium">Read-only</span>
+        )}
         {issueCount > 0 && !editing && (
           <span className="inline-flex items-center gap-1 text-[10px] font-medium text-red-600 bg-red-50 border border-red-200 rounded-full px-2 py-0.5">
             <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
@@ -46,7 +49,7 @@ export function SectionHeader({ title, editing, issueCount, onEdit }: {
           </span>
         )}
       </div>
-      {!editing && (
+      {!editing && !readOnly && (
         <button
           onClick={onEdit}
           className="text-xs text-indigo-600 hover:text-indigo-800 font-medium px-2 py-1 rounded hover:bg-indigo-50"

@@ -144,36 +144,43 @@ export function RoutingPolicyEditor({ policy, defaults }: Props) {
                 </div>
                 <p className="text-xs text-gray-500 mt-0.5">{f.description}</p>
               </div>
-              <div className="shrink-0 w-32">
+              <div className="shrink-0 w-40">
                 {f.type === "boolean" ? (
-                  <button
-                    onClick={() => setValues((prev) => ({ ...prev, [f.key]: !prev[f.key] }))}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                      values[f.key] ? "bg-indigo-600" : "bg-gray-300"
-                    }`}
-                  >
-                    <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
-                      values[f.key] ? "translate-x-6" : "translate-x-1"
-                    }`} />
-                  </button>
-                ) : (
-                  <div className="relative">
-                    {f.unit === "$" && (
-                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
-                    )}
+                  <div className="flex justify-end pt-0.5">
+                    <button
+                      onClick={() => setValues((prev) => ({ ...prev, [f.key]: !prev[f.key] }))}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        values[f.key] ? "bg-indigo-600" : "bg-gray-300"
+                      }`}
+                    >
+                      <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
+                        values[f.key] ? "translate-x-6" : "translate-x-1"
+                      }`} />
+                    </button>
+                  </div>
+                ) : f.unit === "days" ? (
+                  <div className="flex items-center gap-2">
                     <input
                       type="number"
-                      step={f.unit === "$" ? "0.50" : "1"}
+                      step="1"
+                      value={values[f.key] as string}
+                      onChange={(e) => setValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                      placeholder="0"
+                      className="w-20 border border-gray-300 rounded-md py-1.5 px-3 text-sm text-right focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                    <span className="text-xs text-gray-400 shrink-0">days</span>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs">$</span>
+                    <input
+                      type="number"
+                      step="0.50"
                       value={values[f.key] as string}
                       onChange={(e) => setValues((prev) => ({ ...prev, [f.key]: e.target.value }))}
                       placeholder={f.nullable ? "none" : "0"}
-                      className={`w-full border border-gray-300 rounded-md py-1.5 text-sm text-right focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 ${
-                        f.unit === "$" ? "pl-6 pr-3" : "px-3"
-                      }`}
+                      className="w-full border border-gray-300 rounded-md py-1.5 pl-6 pr-3 text-sm text-right focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                     />
-                    {f.unit === "days" && (
-                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-[10px]">days</span>
-                    )}
                   </div>
                 )}
               </div>

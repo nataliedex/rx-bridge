@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { updatePrescriber, resolveIssue } from "@/lib/actions";
 import { EditField, ViewRow, SectionHeader, SaveBar, SavedBanner, PostSaveIssuePrompt, sectionBorderClass, type IssueRef } from "./section-edit-primitives";
+import { formatPhone } from "@/lib/format";
 
 interface Props {
   orderId: string;
@@ -12,9 +13,10 @@ interface Props {
     phone: string | null; fax: string | null; email: string | null; address: string | null;
   };
   issues: IssueRef[];
+  readOnly?: boolean;
 }
 
-export function EditablePrescriber({ orderId, data, issues }: Props) {
+export function EditablePrescriber({ orderId, data, issues, readOnly }: Props) {
   const router = useRouter();
   const sectionRef = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState(false);
@@ -39,11 +41,11 @@ export function EditablePrescriber({ orderId, data, issues }: Props) {
 
   useEffect(() => {
     const el = sectionRef.current;
-    if (!el) return;
+    if (!el || readOnly) return;
     const handler = () => { setEditing(true); setSaved(false); };
     el.addEventListener("open-edit", handler);
     return () => el.removeEventListener("open-edit", handler);
-  }, []);
+  }, [readOnly]);
 
   function handleCancel() {
     setEditing(false); setError(""); setSaved(false);
@@ -69,7 +71,7 @@ export function EditablePrescriber({ orderId, data, issues }: Props) {
 
   return (
     <div ref={sectionRef} id="section-prescriber" className={`bg-white border rounded-lg p-6 scroll-mt-20 ${sectionBorderClass(issueCount > 0)}`}>
-      <SectionHeader title="Prescriber" editing={editing} issueCount={issueCount} onEdit={() => { setEditing(true); setSaved(false); }} />
+      <SectionHeader title="Prescriber" editing={editing} issueCount={issueCount} onEdit={() => { setEditing(true); setSaved(false); }} readOnly={readOnly} />
       {error && <p className="text-red-600 text-xs mb-3">{error}</p>}
 
       {saved && <PostSaveIssuePrompt sectionLabel="Prescriber" issues={sectionIssues} resolvedIds={resolvedIds} autoResolved={autoResolved} remainingHumanIssues={remainingHumanIssues} onResolve={handleResolve} />}
@@ -83,8 +85,8 @@ export function EditablePrescriber({ orderId, data, issues }: Props) {
           </div>
           <EditField label="Clinic Name" value={clinicName} onChange={setClinicName} fieldPath="prescriber.clinicName" hasIssue={issueFields.has("prescriber.clinicName")} />
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <EditField label="Phone" value={phone} onChange={setPhone} type="tel" fieldPath="prescriber.phone" hasIssue={issueFields.has("prescriber.phone")} />
-            <EditField label="Fax" value={fax} onChange={setFax} type="tel" fieldPath="prescriber.fax" hasIssue={issueFields.has("prescriber.fax")} />
+            <EditField label="Phone" value={formatPhone(phone)} onChange={(v) => setPhone(v.replace(/\D/g, "").slice(0, 10))} type="tel" fieldPath="prescriber.phone" hasIssue={issueFields.has("prescriber.phone")} />
+            <EditField label="Fax" value={formatPhone(fax)} onChange={(v) => setFax(v.replace(/\D/g, "").slice(0, 10))} type="tel" fieldPath="prescriber.fax" hasIssue={issueFields.has("prescriber.fax")} />
             <EditField label="Email" value={email} onChange={setEmail} type="email" fieldPath="prescriber.email" />
           </div>
           <EditField label="Address" value={address} onChange={setAddress} fieldPath="prescriber.address" />
@@ -95,8 +97,8 @@ export function EditablePrescriber({ orderId, data, issues }: Props) {
           <ViewRow label="Name" value={data.name} fieldPath="prescriber.name" />
           <ViewRow label="NPI" value={data.npi} fieldPath="prescriber.npi" />
           <ViewRow label="Clinic" value={data.clinicName} fieldPath="prescriber.clinicName" />
-          <ViewRow label="Phone" value={data.phone} fieldPath="prescriber.phone" />
-          <ViewRow label="Fax" value={data.fax} fieldPath="prescriber.fax" />
+          <ViewRow label="Phone" value={formatPhone(data.phone)} fieldPath="prescriber.phone" />
+          <ViewRow label="Fax" value={formatPhone(data.fax)} fieldPath="prescriber.fax" />
           <ViewRow label="Email" value={data.email} fieldPath="prescriber.email" />
         </div>
       )}

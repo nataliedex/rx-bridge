@@ -1,23 +1,27 @@
 import Link from "next/link";
 import { getOrders, getDashboardStats } from "@/lib/actions";
-import { STATUS_LABELS, STATUS_COLORS, ORDER_STATUSES, SEND_READINESS_LABELS, SEND_READINESS_COLORS, SEND_READINESS_VALUES, isSendReadinessRelevant, getNextStep, type OrderStatus, type SendReadiness } from "@/lib/types";
+import { prisma } from "@/lib/db";
+import { STATUS_LABELS, STATUS_COLORS, ORDER_STATUSES, getNextStep, type OrderStatus } from "@/lib/types";
 import { timeAgo } from "@/lib/format";
 import { ClickableRow } from "@/components/clickable-row";
 import { SearchInput } from "@/components/search-input";
 import { HighlightText } from "@/components/highlight-text";
 import { HeaderDropdown } from "@/components/header-dropdown";
+import { QueueAllReady } from "@/components/queue-all-ready";
 
 export const dynamic = "force-dynamic";
 
 interface Props {
-  searchParams: Promise<{ search?: string; status?: string; readiness?: string; approval?: string; attention?: string; pharmacy?: string }>;
+  searchParams: Promise<{ search?: string; status?: string; readiness?: string; nextstep?: string; approval?: string; attention?: string; pharmacy?: string }>;
 }
 
-function actionPriority(status: string, sr: string): number {
-  if (!isSendReadinessRelevant(status)) return 3;
-  if (sr === "missing_data") return 0;
-  if (sr === "needs_review") return 1;
-  return 2;
+// Orders with these Next Step labels are surfaced at the top
+const ISSUE_LABELS = new Set(["Fix Issues", "Review", "Awaiting Correction"]);
+
+function needsAttentionPriority(status: string, sendReadiness: string): number {
+  const step = getNextStep(status, sendReadiness);
+  if (step && ISSUE_LABELS.has(step.label)) return 0; // issues first
+  return 1; // everything else
 }
 
 function removeParam(params: Record<string, string>, key: string): string {
@@ -44,7 +48,7 @@ export default async function OrdersPage({ searchParams }: Props) {
   const params = await searchParams;
   const search = params.search || "";
   const statusFilter = params.status || "all";
-  const readinessFilter = params.readiness || "all";
+  const nextStepFilter = params.nextstep || "all";
   const approvalFilter = params.approval || "";
   const attentionFilter = params.attention || "";
   const pharmacyFilter = params.pharmacy || "";
@@ -52,20 +56,24 @@ export default async function OrdersPage({ searchParams }: Props) {
   const activeParams: Record<string, string> = {};
   if (search) activeParams.search = search;
   if (statusFilter !== "all") activeParams.status = statusFilter;
-  if (readinessFilter !== "all") activeParams.readiness = readinessFilter;
+  if (nextStepFilter !== "all") activeParams.nextstep = nextStepFilter;
   if (approvalFilter) activeParams.approval = approvalFilter;
   if (attentionFilter) activeParams.attention = attentionFilter;
   if (pharmacyFilter) activeParams.pharmacy = pharmacyFilter;
 
-  const [stats, allOrders] = await Promise.all([
+  const [stats, allOrders, refillsToSendCount] = await Promise.all([
     getDashboardStats(),
     getOrders(search || undefined, statusFilter, pharmacyFilter || undefined),
+    prisma.refillRequest.count({ where: { status: { in: ["validated", "queued_for_pharmacy"] } } }),
   ]);
 
   let orders = allOrders;
 
-  if (readinessFilter && readinessFilter !== "all") {
-    orders = orders.filter((o) => o.sendReadiness === readinessFilter);
+  if (nextStepFilter && nextStepFilter !== "all") {
+    orders = orders.filter((o) => {
+      const step = getNextStep(o.status, o.sendReadiness);
+      return step?.label === nextStepFilter;
+    });
   }
   if (attentionFilter === "true") {
     orders = orders.filter((o) =>
@@ -81,7 +89,29 @@ export default async function OrdersPage({ searchParams }: Props) {
     );
   }
 
-  orders.sort((a, b) => actionPriority(a.status, a.sendReadiness) - actionPriority(b.status, b.sendReadiness));
+  // Sort: issues needing attention first, then everything by createdAt (oldest first)
+  orders.sort((a, b) => {
+    const pa = needsAttentionPriority(a.status, a.sendReadiness);
+    const pb = needsAttentionPriority(b.status, b.sendReadiness);
+    if (pa !== pb) return pa - pb;
+    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+  });
+
+  // Build dynamic Next Step filter options from actual data
+  const nextStepLabels = new Set<string>();
+  for (const o of allOrders) {
+    const step = getNextStep(o.status, o.sendReadiness);
+    if (step) nextStepLabels.add(step.label);
+  }
+  const nextStepOptions = [
+    { value: "all", label: "All" },
+    ...Array.from(nextStepLabels).sort().map((label) => ({ value: label, label })),
+  ];
+
+  // Eligible for bulk queueing: approved + ready within the current filtered set
+  const queueEligibleIds = orders
+    .filter((o) => o.status === "approved" && o.sendReadiness === "ready")
+    .map((o) => o.id);
 
   const hasAnyFilter = Object.keys(activeParams).length > 0;
 
@@ -89,7 +119,7 @@ export default async function OrdersPage({ searchParams }: Props) {
   if (attentionFilter === "true") chips.push({ label: "Needs Attention", removeHref: removeParam(activeParams, "attention") });
   if (approvalFilter === "pending") chips.push({ label: "Awaiting Approval", removeHref: removeParam(activeParams, "approval") });
   if (statusFilter !== "all") chips.push({ label: `Status: ${STATUS_LABELS[statusFilter as OrderStatus] || statusFilter}`, removeHref: removeParam(activeParams, "status") });
-  if (readinessFilter !== "all") chips.push({ label: `Next Step: ${SEND_READINESS_LABELS[readinessFilter as SendReadiness] || readinessFilter}`, removeHref: removeParam(activeParams, "readiness") });
+  if (nextStepFilter !== "all") chips.push({ label: `Next Step: ${nextStepFilter}`, removeHref: removeParam(activeParams, "nextstep") });
   if (pharmacyFilter) {
     const pharmacyName = allOrders[0]?.pharmacy?.name || "Pharmacy";
     chips.push({ label: `Pharmacy: ${pharmacyName}`, removeHref: removeParam(activeParams, "pharmacy") });
@@ -101,12 +131,13 @@ export default async function OrdersPage({ searchParams }: Props) {
     { label: "Needs Attention", value: stats.needsAttention, href: "/orders?attention=true", active: attentionFilter === "true", tone: "red" as const },
     { label: "Ready to Queue", value: stats.approved, href: "/orders?status=approved", active: statusFilter === "approved", tone: "green" as const },
     { label: "Queued", value: stats.queued, href: "/queue", active: false, tone: "gray" as const },
-    { label: "Sent", value: stats.sentToPharmacy, href: "/orders?status=sent_to_pharmacy", active: statusFilter === "sent_to_pharmacy", tone: "gray" as const },
+    { label: "At Pharmacy", value: stats.sentToPharmacy, href: "/orders?status=sent_to_pharmacy", active: statusFilter === "sent_to_pharmacy", tone: "gray" as const },
+    { label: "Refills to Send", value: refillsToSendCount, href: "/refills", active: false, tone: "purple" as const },
   ];
 
   const searchBaseParams: Record<string, string> = {};
   if (statusFilter !== "all") searchBaseParams.status = statusFilter;
-  if (readinessFilter !== "all") searchBaseParams.readiness = readinessFilter;
+  if (nextStepFilter !== "all") searchBaseParams.nextstep = nextStepFilter;
   if (approvalFilter) searchBaseParams.approval = approvalFilter;
   if (attentionFilter) searchBaseParams.attention = attentionFilter;
   if (pharmacyFilter) searchBaseParams.pharmacy = pharmacyFilter;
@@ -126,13 +157,14 @@ export default async function OrdersPage({ searchParams }: Props) {
         </div>
 
         {/* Tiles */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-3">
           {tiles.map((tile) => {
             const isEmpty = tile.value === 0;
-            const toneStyles = {
+            const toneStyles: Record<string, string> = {
               gray: "bg-gray-50 border-gray-200",
               red: tile.value > 0 ? "bg-red-50 border-red-200" : "bg-gray-50 border-gray-200",
               green: tile.value > 0 ? "bg-green-50 border-green-200" : "bg-gray-50 border-gray-200",
+              purple: tile.value > 0 ? "bg-purple-50 border-purple-200" : "bg-gray-50 border-gray-200",
             };
             return (
               <Link
@@ -155,7 +187,10 @@ export default async function OrdersPage({ searchParams }: Props) {
         {/* Search + filter chips */}
         <div className="flex items-center justify-between mb-2">
           <SearchInput currentSearch={search} baseParams={searchBaseParams} />
-          <p className="text-xs text-gray-400">{orders.length} order{orders.length !== 1 ? "s" : ""}</p>
+          <div className="flex items-center gap-3">
+            {statusFilter === "approved" && <QueueAllReady orderIds={queueEligibleIds} />}
+            <p className="text-xs text-gray-400">{orders.length} order{orders.length !== 1 ? "s" : ""}</p>
+          </div>
         </div>
 
         {hasAnyFilter && (
@@ -196,7 +231,7 @@ export default async function OrdersPage({ searchParams }: Props) {
               <HeaderDropdown label="Status" value={statusFilter} options={[{ value: "all", label: "All" }, ...ORDER_STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] }))]} paramKey="status" activeParams={activeParams} />
             </div>
             <div className="px-2 py-2 flex-[1]">
-              <HeaderDropdown label="Next Step" value={readinessFilter} options={[{ value: "all", label: "All" }, ...SEND_READINESS_VALUES.map((r) => ({ value: r, label: SEND_READINESS_LABELS[r] }))]} paramKey="readiness" activeParams={activeParams} />
+              <HeaderDropdown label="Next Step" value={nextStepFilter} options={nextStepOptions} paramKey="nextstep" activeParams={activeParams} />
             </div>
             <div className="pl-2 pr-3 py-2 flex-[0.7] text-right">Age</div>
           </div>
@@ -216,7 +251,7 @@ export default async function OrdersPage({ searchParams }: Props) {
                 >
                   <div className="pl-3 pr-2 py-1.5 flex-[2] min-w-0">
                     <span className="text-[13px] font-semibold text-gray-900 leading-tight block truncate">
-                      <HighlightText text={`${order.patient.firstName} ${order.patient.lastName}`} search={search} />
+                      <HighlightText text={`${order.patient.lastName}, ${order.patient.firstName}`} search={search} />
                     </span>
                     <p className="text-[10px] text-gray-300 font-mono leading-none mt-0.5">{order.id.slice(-8)}</p>
                   </div>

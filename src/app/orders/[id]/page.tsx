@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getOrder, getProviderPriceForMedication } from "@/lib/actions";
+import { getOrder, getSellPriceForMedication, getCorrectionRequests } from "@/lib/actions";
+import { prisma } from "@/lib/db";
 import { transformOrder } from "@/lib/transformers/pipeline";
-import { STATUS_LABELS, STATUS_COLORS, SEND_READINESS_LABELS, SEND_READINESS_COLORS, isSendReadinessRelevant, type OrderStatus, type SendReadiness } from "@/lib/types";
-import { timeAgo } from "@/lib/format";
+import { STATUS_LABELS, STATUS_COLORS, SEND_READINESS_LABELS, SEND_READINESS_COLORS, isSendReadinessRelevant, isInboundOrder, type OrderStatus, type SendReadiness } from "@/lib/types";
+import { timeAgo, formatPhone } from "@/lib/format";
 import { StatusUpdater } from "@/components/status-updater";
 import { OpenIssues } from "@/components/open-issues";
 import { WorkflowBanner } from "@/components/workflow-banner";
@@ -11,7 +12,10 @@ import { EditablePatient } from "@/components/editable-patient";
 import { EditablePrescriber } from "@/components/editable-prescriber";
 import { EditablePrescription } from "@/components/editable-prescription";
 import { EditableInternalNotes } from "@/components/editable-internal-notes";
-import { parsePricing, formatCurrency, formatPercent } from "@/lib/pricing";
+import { OrderCorrectionPanel } from "@/components/order-correction-panel";
+import { RefillActions } from "@/components/refill-actions";
+import { getRefillHistory } from "@/lib/refills/service";
+import { formatCurrency, formatPercent, getPricingUnit } from "@/lib/pricing";
 
 export const dynamic = "force-dynamic";
 
@@ -25,8 +29,14 @@ export default async function OrderDetailPage({ params }: Props) {
   if (!order) notFound();
 
   const { normalized, packet } = transformOrder(order);
-  const providerPriceEntry = await getProviderPriceForMedication(order.medicationName);
+  const [sellPrice, correctionRequests, refillHistory] = await Promise.all([
+    getSellPriceForMedication(order.medicationName),
+    getCorrectionRequests(order.id),
+    order.refills > 0 ? getRefillHistory(order.id) : null,
+  ]);
   const openIssues = order.issues.filter((i) => i.status === "open");
+  const inbound = isInboundOrder(order.orderSource);
+  const openCorrectionRequests = correctionRequests.filter((r) => r.status === "open");
 
   const issueRefs = JSON.parse(JSON.stringify(order.issues.map((i) => ({
     id: i.id, fieldPath: i.fieldPath, title: i.title, status: i.status,
@@ -66,13 +76,18 @@ export default async function OrderDetailPage({ params }: Props) {
         pharmacyName={order.pharmacy.name}
         openIssueCount={openIssues.length}
         alreadySent={order.transmissions.length > 0}
+        openCorrectionCount={openCorrectionRequests.length}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 space-y-6">
-          <OpenIssues
+          <OrderCorrectionPanel
+            orderId={order.id}
+            isInbound={inbound}
+            orderSource={order.orderSource}
             issues={JSON.parse(JSON.stringify(order.issues))}
             sendReadiness={order.sendReadiness}
+            correctionRequests={JSON.parse(JSON.stringify(correctionRequests))}
           />
 
           <EditablePatient
@@ -85,6 +100,7 @@ export default async function OrderDetailPage({ params }: Props) {
               state: order.patient.state, zip: order.patient.zip,
             }}
             issues={issueRefs}
+            readOnly={inbound}
           />
 
           <EditablePrescriber
@@ -96,6 +112,7 @@ export default async function OrderDetailPage({ params }: Props) {
               address: order.prescriber.address,
             }}
             issues={issueRefs}
+            readOnly={inbound}
           />
 
           <EditablePrescription
@@ -108,13 +125,14 @@ export default async function OrderDetailPage({ params }: Props) {
               icd10: order.icd10, rxNotes: order.rxNotes,
             }}
             issues={issueRefs}
+            readOnly={inbound}
           />
 
           <div id="section-pharmacy" className="bg-white border border-gray-200 rounded-lg p-6 scroll-mt-20">
             <h2 className="text-lg font-medium mb-4">Fulfillment Pharmacy</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <ViewRow label="Name" value={order.pharmacy.name} />
-              <ViewRow label="Fax" value={order.pharmacy.fax} />
+              <ViewRow label="Fax" value={formatPhone(order.pharmacy.fax)} />
               <ViewRow label="Email" value={order.pharmacy.email} />
               <ViewRow label="Format" value={order.pharmacy.formatPreference} />
             </div>
@@ -259,57 +277,88 @@ export default async function OrderDetailPage({ params }: Props) {
             priority={order.priority}
           />
 
-          {(() => {
-            const pricing = parsePricing((order as any).pricingJson);
+          {await (async () => {
+            // Try routing JSON first, fall back to catalog lookup
             const routingRaw = (order as any).routingJson as string | null;
-            const pharmacyCost = routingRaw ? JSON.parse(routingRaw)?.price as number | null : null;
-            const providerPrice = providerPriceEntry?.price ?? null;
-            const hasMargin = pharmacyCost != null && providerPrice != null;
-            const margin = hasMargin ? providerPrice - pharmacyCost : null;
-            const marginPct = hasMargin && providerPrice > 0 ? margin! / providerPrice : null;
+            let pharmacyCost = routingRaw ? JSON.parse(routingRaw)?.price as number | null : null;
 
-            if (!pricing && !hasMargin && !providerPrice) return null;
+            // Fallback: look up active pharmacy cost for this medication + pharmacy from catalog
+            if (pharmacyCost == null) {
+              const catalogPrice = await prisma.medicationPriceEntry.findFirst({
+                where: {
+                  medication: { name: order.medicationName },
+                  pharmacyId: order.pharmacyId,
+                  endDate: null,
+                },
+                select: { price: true },
+                orderBy: { price: "asc" },
+              });
+              pharmacyCost = catalogPrice?.price ?? null;
+            }
+
+            const hasMargin = pharmacyCost != null && sellPrice != null;
+            const margin = hasMargin ? sellPrice! - pharmacyCost! : null;
+            const marginPct = hasMargin && sellPrice! > 0 ? margin! / sellPrice! : null;
+
+            if (!hasMargin && sellPrice == null && pharmacyCost == null) return null;
+
+            const unit = order.dosageForm ? getPricingUnit(order.dosageForm) : "unit";
+            const qty = order.quantity ?? 1;
+            const totalSell = sellPrice != null ? sellPrice * qty : null;
+            const totalCost = pharmacyCost != null ? pharmacyCost * qty : null;
+            const totalMargin = totalSell != null && totalCost != null ? totalSell - totalCost : null;
 
             return (
               <div className="bg-white border border-gray-200 rounded-lg p-6">
-                <h3 className="text-sm font-medium text-gray-900 mb-3">Pricing</h3>
+                <h3 className="text-sm font-medium text-gray-900 mb-3">Economics</h3>
+                {/* Per-unit */}
                 <div className="space-y-2">
-                  {providerPrice != null && (
+                  {sellPrice != null && (
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Provider Price</span>
-                      <span className="font-semibold text-gray-900">{formatCurrency(providerPrice)}</span>
+                      <span className="text-gray-500">Brand Pays <span className="text-gray-400">/ {unit}</span></span>
+                      <span className="font-semibold text-gray-900">{formatCurrency(sellPrice)}</span>
                     </div>
                   )}
                   {pharmacyCost != null && (
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Pharmacy Cost</span>
+                      <span className="text-gray-500">Pharmacy Cost <span className="text-gray-400">/ {unit}</span></span>
                       <span className="text-gray-700">{formatCurrency(pharmacyCost)}</span>
                     </div>
                   )}
                   {hasMargin && margin != null && marginPct != null && (
                     <div className={`border-t border-gray-100 pt-2 flex justify-between text-sm font-medium ${margin >= 0 ? "text-green-700" : "text-red-600"}`}>
-                      <span>Margin</span>
+                      <span>Margin <span className="font-normal text-gray-400">/ {unit}</span></span>
                       <span>{formatCurrency(margin)} ({formatPercent(marginPct)})</span>
                     </div>
                   )}
-                  {pricing && (
-                    <>
-                      {(hasMargin || providerPrice != null) && <div className="border-t border-gray-100 pt-2" />}
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">Estimated Retail</span>
-                        <span className="text-gray-400 line-through">{formatCurrency(pricing.retailEstimate)}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">GPO Price</span>
-                        <span className="font-semibold text-gray-900">{formatCurrency(pricing.gpoPrice)}</span>
-                      </div>
-                      <div className="border-t border-gray-100 pt-2 flex justify-between text-sm">
-                        <span className="text-green-700 font-medium">Savings</span>
-                        <span className="text-green-700 font-medium">{formatCurrency(pricing.savingsAbsolute)} ({formatPercent(pricing.savingsPercent)})</span>
-                      </div>
-                    </>
+                  {sellPrice != null && pharmacyCost == null && (
+                    <p className="text-[10px] text-amber-600 mt-1">Pharmacy cost not available — margin cannot be calculated</p>
                   )}
                 </div>
+                {/* Order total */}
+                {qty > 1 && (totalSell != null || totalCost != null) && (
+                  <div className="mt-3 pt-3 border-t border-gray-200 space-y-1.5">
+                    <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">Order Total ({qty} {unit}{qty !== 1 ? "s" : ""})</p>
+                    {totalSell != null && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Brand Pays</span>
+                        <span className="font-semibold text-gray-900">{formatCurrency(totalSell)}</span>
+                      </div>
+                    )}
+                    {totalCost != null && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-500">Pharmacy Cost</span>
+                        <span className="text-gray-700">{formatCurrency(totalCost)}</span>
+                      </div>
+                    )}
+                    {totalMargin != null && (
+                      <div className={`flex justify-between text-sm font-medium ${totalMargin >= 0 ? "text-green-700" : "text-red-600"}`}>
+                        <span>Margin</span>
+                        <span>{formatCurrency(totalMargin)}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })()}
@@ -320,6 +369,26 @@ export default async function OrderDetailPage({ params }: Props) {
             <ViewRow label="Updated" value={`${order.updatedAt.toLocaleString()} (${timeAgo(order.updatedAt)})`} />
             {order.rawPayload && <p className="text-xs text-gray-400 mt-2">Raw intake payload preserved</p>}
           </div>
+
+          {order.refills > 0 && refillHistory && (
+            <RefillActions
+              orderId={order.id}
+              orderStatus={order.status}
+              refillsAuthorized={refillHistory.refillsAuthorized}
+              refillsFilled={refillHistory.refillsFilled}
+              refillsInFlight={refillHistory.refillsInFlight}
+              refillsRemaining={refillHistory.refillsRemaining}
+              latestRefill={refillHistory.history.length > 0 ? {
+                id: refillHistory.history[0].id,
+                status: refillHistory.history[0].status,
+                createdAt: refillHistory.history[0].createdAt.toISOString(),
+                validatedAt: refillHistory.history[0].validatedAt?.toISOString() ?? null,
+                sentToPharmacyAt: refillHistory.history[0].sentToPharmacyAt?.toISOString() ?? null,
+                filledAt: refillHistory.history[0].filledAt?.toISOString() ?? null,
+                cancelledAt: refillHistory.history[0].cancelledAt?.toISOString() ?? null,
+              } : null}
+            />
+          )}
 
           {order.transmissions.length > 0 && (
             <div className="bg-white border border-gray-200 rounded-lg p-6">
