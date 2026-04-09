@@ -42,27 +42,24 @@ export default async function DashboardPage() {
         </div>
       )}
 
-      {/* Snapshot */}
+      {/* Summary cards — aligned with Ledger */}
       <div className="grid grid-cols-4 gap-4 mb-6">
-        <div className="bg-white border border-gray-200 rounded-lg p-5">
-          <p className="text-xs text-gray-400 uppercase tracking-wider">Treatments This Month</p>
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <p className="text-xs text-gray-400 uppercase tracking-wider">Total Scripts</p>
           <p className="text-2xl font-bold text-gray-900 mt-1">{data.snapshot.orderCount}</p>
+          <p className="text-[10px] text-gray-400 mt-0.5">this month</p>
         </div>
-        <div className="bg-white border border-gray-200 rounded-lg p-5">
-          <p className="text-xs text-gray-400 uppercase tracking-wider">Client Revenue</p>
-          <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(data.snapshot.revenue)}</p>
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <p className="text-xs text-gray-400 uppercase tracking-wider">Pharmacy Spend</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(data.snapshot.pharmacySpend)}</p>
         </div>
-        <div className="bg-white border border-gray-200 rounded-lg p-5">
-          <p className="text-xs text-gray-400 uppercase tracking-wider">Your Profit</p>
-          <p className={`text-2xl font-bold mt-1 ${data.snapshot.grossProfit > 0 ? "text-green-700" : "text-gray-900"}`}>
-            {formatCurrency(data.snapshot.grossProfit)}
-          </p>
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <p className="text-xs text-gray-400 uppercase tracking-wider">Bisk Fees</p>
+          <p className="text-2xl font-bold text-gray-500 mt-1">{formatCurrency(data.snapshot.biskFees)}</p>
         </div>
-        <div className="bg-white border border-gray-200 rounded-lg p-5">
-          <p className="text-xs text-gray-400 uppercase tracking-wider">Avg Profit / Treatment</p>
-          <p className={`text-2xl font-bold mt-1 ${data.snapshot.avgProfit > 0 ? "text-green-700" : "text-gray-900"}`}>
-            {data.snapshot.orderCount > 0 ? formatCurrency(data.snapshot.avgProfit) : "—"}
-          </p>
+        <div className="bg-white border border-gray-200 rounded-lg p-4">
+          <p className="text-xs text-gray-400 uppercase tracking-wider">Total Cost</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1">{formatCurrency(data.snapshot.totalCost)}</p>
         </div>
       </div>
 
@@ -91,7 +88,7 @@ export default async function DashboardPage() {
             <Link href="/ledger" className="text-[11px] text-indigo-600 hover:text-indigo-800">View all &rarr;</Link>
           </div>
           {data.recentActivity.length === 0 ? (
-            <div className="p-5 text-center text-gray-400 text-sm">No orders logged yet — start tracking to see profit.</div>
+            <div className="p-5 text-center text-gray-400 text-sm">No transactions recorded yet.</div>
           ) : (
             <div className="divide-y divide-gray-100">
               {data.recentActivity.map((item) => (

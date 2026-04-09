@@ -49,30 +49,47 @@ export async function getAllActiveProgramPrices(date: Date = new Date()): Promis
 // PRICING STRATEGY (Settings)
 // =============================================
 
-export type PricingMode = "markup_based" | "fixed_sell_price";
+export type PricingMode = "manual" | "markup" | "hybrid";
 
 export interface PricingStrategy {
   mode: PricingMode;
+  enableMarkupGuidance: boolean;
   defaultMarkupPct: number; // e.g. 25 for 25%
-  allowMedicationOverrides: boolean;
-  allowMedSpaOverrides: boolean;
+  preventNegativeMargin: boolean;
+  highlightLowMargin: boolean;
+  minimumTargetFeePerScript: number | null;
+  allowManualOverrides: boolean;
   freshnessMonths: number; // e.g. 12 — prices older than this are "stale"
   defaultContractTermMonths: number; // e.g. 12 — recommended contract duration
+  // Legacy compat — kept for consumers that read these
+  allowMedicationOverrides: boolean;
+  allowMedSpaOverrides: boolean;
 }
 
 const PRICING_DEFAULTS: PricingStrategy = {
-  mode: "markup_based",
+  mode: "manual",
+  enableMarkupGuidance: false,
   defaultMarkupPct: 25,
-  allowMedicationOverrides: true,
-  allowMedSpaOverrides: true,
+  preventNegativeMargin: true,
+  highlightLowMargin: true,
+  minimumTargetFeePerScript: 5,
+  allowManualOverrides: true,
   freshnessMonths: 12,
   defaultContractTermMonths: 12,
+  allowMedicationOverrides: true,
+  allowMedSpaOverrides: true,
 };
 
 export async function getPricingStrategy(): Promise<PricingStrategy> {
   const row = await prisma.appConfig.findUnique({ where: { key: "pricing_strategy" } });
   if (!row) return PRICING_DEFAULTS;
-  try { return { ...PRICING_DEFAULTS, ...JSON.parse(row.value) }; }
+  try {
+    const parsed = JSON.parse(row.value);
+    // Migrate legacy mode values
+    if (parsed.mode === "markup_based") { parsed.mode = "markup"; parsed.enableMarkupGuidance = true; }
+    if (parsed.mode === "fixed_sell_price") { parsed.mode = "manual"; }
+    return { ...PRICING_DEFAULTS, ...parsed };
+  }
   catch { return PRICING_DEFAULTS; }
 }
 
@@ -85,15 +102,15 @@ export async function savePricingStrategy(strategy: PricingStrategy) {
   return strategy;
 }
 
-// Compute sell price from pharmacy cost using current strategy
-export async function computeSellPrice(pharmacyCost: number): Promise<{ sellPrice: number; markupPct: number }> {
+// Compute suggested sell price from pharmacy cost using current strategy
+export async function computeSellPrice(pharmacyCost: number): Promise<{ sellPrice: number; markupPct: number; isSuggestion: boolean }> {
   const strategy = await getPricingStrategy();
-  if (strategy.mode === "markup_based") {
+  if (strategy.mode === "markup" || (strategy.mode === "hybrid" && strategy.enableMarkupGuidance)) {
     const sellPrice = Math.round(pharmacyCost * (1 + strategy.defaultMarkupPct / 100) * 100) / 100;
-    return { sellPrice, markupPct: strategy.defaultMarkupPct };
+    return { sellPrice, markupPct: strategy.defaultMarkupPct, isSuggestion: strategy.mode === "hybrid" };
   }
-  // fixed_sell_price mode — no global default, return cost with 0 markup
-  return { sellPrice: pharmacyCost, markupPct: 0 };
+  // manual mode or hybrid without guidance — no auto-calculation
+  return { sellPrice: pharmacyCost, markupPct: 0, isSuggestion: false };
 }
 
 // =============================================
@@ -123,12 +140,11 @@ export async function getDashboardData() {
     }),
   ]);
 
-  // Snapshot
-  const revenue = allOrders.reduce((s, o) => s + o.medSpaPaid, 0);
-  const cost = allOrders.reduce((s, o) => s + o.pharmacyCost, 0);
-  const grossProfit = revenue - cost;
+  // Snapshot — aligned with Ledger metrics
   const orderCount = allOrders.length;
-  const avgProfit = orderCount > 0 ? grossProfit / orderCount : 0;
+  const pharmacySpend = Math.round(allOrders.reduce((s, o) => s + o.pharmacyCost, 0) * 100) / 100;
+  const biskFees = Math.round(orderCount * 5 * 100) / 100;
+  const totalCost = Math.round((pharmacySpend + biskFees) * 100) / 100;
 
   // Needs attention — grouped by med spa
   const attentionMap = new Map<string, { name: string; href: string; issues: string[]; priority: number }>();
@@ -145,10 +161,10 @@ export async function getDashboardData() {
 
   for (const spa of medSpas) {
     if (spa._count.pricingLines > 0 && spa._count.fulfilledOrders === 0) {
-      addIssue(spa.id, spa.name, "No orders logged yet — start tracking to see profit", 1);
+      addIssue(spa.id, spa.name, "No transactions recorded yet \u2014 start tracking activity", 1);
     }
     if ((spa.pipelineStage === "negotiating" || spa.pipelineStage === "pricing_sent") && spa._count.pricingLines > 0) {
-      addIssue(spa.id, spa.name, `Pipeline: ${spa.pipelineStage === "negotiating" ? "Negotiating" : "Proposal sent"} — follow up`, 2);
+      addIssue(spa.id, spa.name, `${spa.pipelineStage === "negotiating" ? "Negotiating" : "Proposal sent"} \u2014 follow up`, 2);
     }
   }
 
@@ -168,7 +184,7 @@ export async function getDashboardData() {
   }));
 
   return {
-    snapshot: { orderCount, revenue, grossProfit, avgProfit },
+    snapshot: { orderCount, pharmacySpend, biskFees, totalCost },
     attention,
     recentActivity,
     medSpaCount: medSpas.length,
@@ -757,7 +773,7 @@ export async function getProgramPricingOverview(opts?: {
   ]);
 
   const strategy = await getPricingStrategy();
-  const targetMarginPct = strategy.defaultMarkupPct; // Use markup as target margin threshold
+  const minFee = strategy.minimumTargetFeePerScript ?? 5;
 
   // Index program prices by medication
   const programPriceMap = new Map<string, typeof programPrices[number]>();
@@ -810,9 +826,13 @@ export async function getProgramPricingOverview(opts?: {
       });
       if (hasRenewalIssue) status = "needs_renewal";
 
-      // Check margin
-      if (marginPct != null && marginPct < (targetMarginPct / 2)) {
+      // Check margin — use fee-per-script guardrail
+      if (strategy.highlightLowMargin && margin != null && margin < minFee) {
         status = status === "healthy" ? "low_margin" : status;
+      }
+      // Negative margin check
+      if (strategy.preventNegativeMargin && margin != null && margin < 0) {
+        status = "low_margin";
       }
     }
 

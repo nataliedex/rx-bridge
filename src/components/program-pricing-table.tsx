@@ -8,11 +8,21 @@ import { NetworkSearchInput } from "./network-search-input";
 
 import type { MedicationPricingRow, MedPricingStatus } from "@/lib/actions";
 
+interface Guardrails {
+  pricingMode: string;
+  enableMarkupGuidance: boolean;
+  defaultMarkupPct: number;
+  preventNegativeMargin: boolean;
+  highlightLowMargin: boolean;
+  minimumTargetFeePerScript: number | null;
+}
+
 interface Props {
   rows: MedicationPricingRow[];
   currentSearch: string;
   currentStatus: string;
   defaultContractTermMonths: number;
+  guardrails?: Guardrails;
 }
 
 const STATUS_STYLES: Record<MedPricingStatus, { label: string; bg: string; text: string }> = {
@@ -84,7 +94,7 @@ function marginColor(pct: number | null): string {
 type SortKey = "medication" | "bestCost" | "programPrice" | "margin" | "status";
 type SortDir = "asc" | "desc";
 
-export function ProgramPricingTable({ rows, currentSearch, currentStatus, defaultContractTermMonths }: Props) {
+export function ProgramPricingTable({ rows, currentSearch, currentStatus, defaultContractTermMonths, guardrails }: Props) {
   const router = useRouter();
   const [search, setSearch] = useState(currentSearch);
   const [expandedMed, setExpandedMed] = useState<string | null>(null);
@@ -347,6 +357,7 @@ export function ProgramPricingTable({ rows, currentSearch, currentStatus, defaul
           bestCost={editing.bestCost}
           bestCostPharmacy={editing.bestCostPharmacy}
           defaultTermMonths={defaultContractTermMonths}
+          guardrails={guardrails}
         />
       )}
     </>

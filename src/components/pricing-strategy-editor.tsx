@@ -8,27 +8,54 @@ interface Props {
   initial: PricingStrategy;
 }
 
+function Toggle({ on, onToggle, disabled }: { on: boolean; onToggle: () => void; disabled?: boolean }) {
+  return (
+    <button type="button" onClick={onToggle} disabled={disabled}
+      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+        disabled ? "opacity-40 cursor-not-allowed" : ""
+      } ${on ? "bg-indigo-600" : "bg-gray-200"}`}>
+      <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${on ? "translate-x-4" : "translate-x-0.5"}`} />
+    </button>
+  );
+}
+
 export function PricingStrategyEditor({ initial }: Props) {
   const router = useRouter();
   const [mode, setMode] = useState<PricingMode>(initial.mode);
+  const [enableMarkupGuidance, setEnableMarkupGuidance] = useState(initial.enableMarkupGuidance);
   const [markup, setMarkup] = useState(String(initial.defaultMarkupPct));
-  const [allowMedOverrides, setAllowMedOverrides] = useState(initial.allowMedicationOverrides);
-  const [allowSpaOverrides, setAllowSpaOverrides] = useState(initial.allowMedSpaOverrides);
+  const [preventNegativeMargin, setPreventNegativeMargin] = useState(initial.preventNegativeMargin);
+  const [highlightLowMargin, setHighlightLowMargin] = useState(initial.highlightLowMargin);
+  const [minFee, setMinFee] = useState(String(initial.minimumTargetFeePerScript ?? ""));
+  const [allowManualOverrides, setAllowManualOverrides] = useState(initial.allowManualOverrides);
   const [freshnessMonths, setFreshnessMonths] = useState(String(initial.freshnessMonths ?? 12));
   const [contractTermMonths, setContractTermMonths] = useState(String(initial.defaultContractTermMonths ?? 12));
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  // Auto-sync markup guidance with mode
+  function handleModeChange(newMode: PricingMode) {
+    setMode(newMode);
+    if (newMode === "markup") setEnableMarkupGuidance(true);
+    if (newMode === "hybrid") setEnableMarkupGuidance(true);
+    if (newMode === "manual") setEnableMarkupGuidance(false);
+  }
 
   async function handleSave() {
     setSaving(true); setSaved(false);
     try {
       await savePricingStrategy({
         mode,
+        enableMarkupGuidance,
         defaultMarkupPct: parseFloat(markup) || 25,
-        allowMedicationOverrides: allowMedOverrides,
-        allowMedSpaOverrides: allowSpaOverrides,
+        preventNegativeMargin,
+        highlightLowMargin,
+        minimumTargetFeePerScript: minFee ? parseFloat(minFee) : null,
+        allowManualOverrides,
         freshnessMonths: parseInt(freshnessMonths) || 12,
         defaultContractTermMonths: parseInt(contractTermMonths) || 12,
+        allowMedicationOverrides: allowManualOverrides,
+        allowMedSpaOverrides: allowManualOverrides,
       });
       setSaved(true);
       router.refresh();
@@ -38,9 +65,12 @@ export function PricingStrategyEditor({ initial }: Props) {
   }
 
   const isDirty = mode !== initial.mode
+    || enableMarkupGuidance !== initial.enableMarkupGuidance
     || markup !== String(initial.defaultMarkupPct)
-    || allowMedOverrides !== initial.allowMedicationOverrides
-    || allowSpaOverrides !== initial.allowMedSpaOverrides
+    || preventNegativeMargin !== initial.preventNegativeMargin
+    || highlightLowMargin !== initial.highlightLowMargin
+    || minFee !== String(initial.minimumTargetFeePerScript ?? "")
+    || allowManualOverrides !== initial.allowManualOverrides
     || freshnessMonths !== String(initial.freshnessMonths ?? 12)
     || contractTermMonths !== String(initial.defaultContractTermMonths ?? 12);
 
@@ -48,101 +78,136 @@ export function PricingStrategyEditor({ initial }: Props) {
   const exampleCost = 100;
   const exampleSell = (exampleCost * (1 + markupNum / 100)).toFixed(2);
 
+  const markupDisabled = mode === "manual" && !enableMarkupGuidance;
+
+  const MODES: { value: PricingMode; label: string; helper: string; badge?: string }[] = [
+    { value: "manual", label: "Manual Pricing", helper: "Set proposed prices directly per medication.", badge: "Default" },
+    { value: "markup", label: "Markup-Based Pricing", helper: "Automatically calculate proposed prices from pharmacy cost using a default markup percentage." },
+    { value: "hybrid", label: "Hybrid Pricing", helper: "Start with markup-based suggested prices, then allow manual overrides per medication." },
+  ];
+
   return (
     <div className="space-y-6 max-w-2xl">
-      {/* Pricing Strategy */}
+      {/* 1. Pricing Model */}
       <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <h2 className="text-sm font-semibold text-gray-900">Pricing Strategy</h2>
-        <p className="text-xs text-gray-500 mt-1 mb-5">Choose how Bisk calculates client pricing from your cost</p>
+        <h2 className="text-sm font-semibold text-gray-900">Pricing Model</h2>
+        <p className="text-xs text-gray-500 mt-1 mb-5">Choose how Bisk generates proposed prices for medications</p>
 
         <div className="space-y-3">
-          {/* Markup-Based */}
-          <label
-            className={`flex items-start gap-3 border rounded-lg p-4 cursor-pointer transition-colors ${
-              mode === "markup_based" ? "border-indigo-300 bg-indigo-50/50" : "border-gray-200 hover:border-gray-300"
-            }`}
-          >
-            <input type="radio" name="pricing_mode" value="markup_based"
-              checked={mode === "markup_based"} onChange={() => setMode("markup_based")} className="mt-0.5" />
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-medium text-gray-900">Markup-Based Pricing</p>
-                <span className="text-[9px] font-medium text-indigo-600 bg-indigo-100 px-1.5 py-0.5 rounded">Recommended</span>
+          {MODES.map((opt) => (
+            <label key={opt.value}
+              className={`flex items-start gap-3 border rounded-lg p-4 cursor-pointer transition-colors ${
+                mode === opt.value ? "border-indigo-300 bg-indigo-50/50" : "border-gray-200 hover:border-gray-300"
+              }`}>
+              <input type="radio" name="pricing_mode" value={opt.value}
+                checked={mode === opt.value} onChange={() => handleModeChange(opt.value)} className="mt-0.5" />
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-gray-900">{opt.label}</p>
+                  {opt.badge && (
+                    <span className="text-[9px] font-medium text-indigo-600 bg-indigo-100 px-1.5 py-0.5 rounded">{opt.badge}</span>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 mt-1">{opt.helper}</p>
               </div>
-              <p className="text-xs text-gray-500 mt-1">Client price is calculated from your cost plus a target markup percentage. Markup is the source of truth.</p>
-              <p className="text-[10px] text-gray-400 mt-1 font-mono">client price = your cost &times; (1 + markup%)</p>
-            </div>
-          </label>
-
-          {/* Fixed Sell Price */}
-          <label
-            className={`flex items-start gap-3 border rounded-lg p-4 cursor-pointer transition-colors ${
-              mode === "fixed_sell_price" ? "border-indigo-300 bg-indigo-50/50" : "border-gray-200 hover:border-gray-300"
-            }`}
-          >
-            <input type="radio" name="pricing_mode" value="fixed_sell_price"
-              checked={mode === "fixed_sell_price"} onChange={() => setMode("fixed_sell_price")} className="mt-0.5" />
-            <div className="flex-1">
-              <p className="text-sm font-medium text-gray-900">Fixed Client Price</p>
-              <p className="text-xs text-gray-500 mt-1">Client price is manually set per medication. Markup and margin are derived from the difference between client price and your cost.</p>
-              <p className="text-[10px] text-gray-400 mt-1 font-mono">markup% = (client price - your cost) / your cost</p>
-            </div>
-          </label>
+            </label>
+          ))}
         </div>
+      </div>
 
-        {mode === "markup_based" && (
-          <div className="mt-5 pt-5 border-t border-gray-100">
-            <label className="block text-xs font-medium text-gray-600 mb-1">Default Target Markup %</label>
+      {/* 2. Markup Guidance */}
+      <div className="bg-white border border-gray-200 rounded-lg p-6">
+        <h2 className="text-sm font-semibold text-gray-900">Markup Guidance</h2>
+        <p className="text-xs text-gray-500 mt-1 mb-4">Use markup as an optional pricing assistant to suggest starting prices</p>
+
+        <div className="space-y-4">
+          <label className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-900">Enable markup guidance</p>
+              <p className="text-xs text-gray-500 mt-0.5">Use default markup to suggest initial proposed prices from pharmacy cost.</p>
+            </div>
+            <Toggle on={enableMarkupGuidance} onToggle={() => {
+              if (mode === "markup") return; // Always on for markup mode
+              setEnableMarkupGuidance(!enableMarkupGuidance);
+            }} disabled={mode === "markup"} />
+          </label>
+
+          <div className={`pt-4 border-t border-gray-100 ${markupDisabled ? "opacity-40" : ""}`}>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Default Markup %</label>
             <div className="flex items-center gap-2 max-w-[200px]">
               <input type="number" min="1" max="200" step="1" value={markup}
-                onChange={(e) => setMarkup(e.target.value)}
-                className="w-20 border border-gray-300 rounded-md px-3 py-2 text-sm text-right focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
+                onChange={(e) => setMarkup(e.target.value)} disabled={markupDisabled}
+                className="w-20 border border-gray-300 rounded-md px-3 py-2 text-sm text-right focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:bg-gray-50" />
               <span className="text-sm text-gray-500">%</span>
             </div>
             <p className="text-[10px] text-gray-400 mt-1.5">
-              At {markup}% markup, a ${exampleCost} cost results in a ${exampleSell} client price.
+              At {markupNum}% markup, a ${exampleCost} pharmacy cost suggests a ${exampleSell} proposed price.
             </p>
           </div>
-        )}
 
-        {mode === "fixed_sell_price" && (
-          <div className="mt-5 pt-5 border-t border-gray-100">
-            <p className="text-xs text-gray-500">Client prices must be entered manually at the medication or program level. There is no global default client price.</p>
-          </div>
-        )}
+          {mode === "manual" && !enableMarkupGuidance && (
+            <p className="text-[10px] text-gray-400 italic">Markup guidance is not active in Manual Pricing mode.</p>
+          )}
+        </div>
       </div>
 
-      {/* Sell Price Overrides */}
+      {/* 3. Pricing Guardrails */}
       <div className="bg-white border border-gray-200 rounded-lg p-6">
-        <h2 className="text-sm font-semibold text-gray-900">Client Price Overrides</h2>
-        <p className="text-xs text-gray-500 mt-1 mb-4">Control where client price can deviate from the global strategy</p>
+        <h2 className="text-sm font-semibold text-gray-900">Pricing Guardrails</h2>
+        <p className="text-xs text-gray-500 mt-1 mb-4">Prevent obviously bad pricing decisions</p>
 
         <div className="space-y-3">
           <label className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-900">Allow per-medication client price overrides</p>
-              <p className="text-xs text-gray-500 mt-0.5">Individual medications can have a custom client price that differs from the global markup</p>
+              <p className="text-sm text-gray-900">Prevent negative margin pricing</p>
+              <p className="text-xs text-gray-500 mt-0.5">Warn or block pricing below pharmacy cost.</p>
             </div>
-            <button type="button" onClick={() => setAllowMedOverrides(!allowMedOverrides)}
-              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${allowMedOverrides ? "bg-indigo-600" : "bg-gray-200"}`}>
-              <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${allowMedOverrides ? "translate-x-4" : "translate-x-0.5"}`} />
-            </button>
+            <Toggle on={preventNegativeMargin} onToggle={() => setPreventNegativeMargin(!preventNegativeMargin)} />
           </label>
 
           <label className="flex items-center justify-between border-t border-gray-100 pt-3">
             <div>
-              <p className="text-sm text-gray-900">Allow per-med spa client price overrides</p>
-              <p className="text-xs text-gray-500 mt-0.5">Specific med spa accounts can have custom client prices that differ from the global strategy</p>
+              <p className="text-sm text-gray-900">Highlight low-margin pricing</p>
+              <p className="text-xs text-gray-500 mt-0.5">Flag medications where proposed pricing produces very low margin.</p>
             </div>
-            <button type="button" onClick={() => setAllowSpaOverrides(!allowSpaOverrides)}
-              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${allowSpaOverrides ? "bg-indigo-600" : "bg-gray-200"}`}>
-              <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${allowSpaOverrides ? "translate-x-4" : "translate-x-0.5"}`} />
-            </button>
+            <Toggle on={highlightLowMargin} onToggle={() => setHighlightLowMargin(!highlightLowMargin)} />
           </label>
+
+          <div className="border-t border-gray-100 pt-3">
+            <label className="block text-xs font-medium text-gray-600 mb-1">Minimum target fee per script</label>
+            <div className="flex items-center gap-2 max-w-[200px]">
+              <span className="text-sm text-gray-400">$</span>
+              <input type="number" min="0" step="0.50" value={minFee}
+                onChange={(e) => setMinFee(e.target.value)}
+                placeholder="5"
+                className="w-24 border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" />
+            </div>
+            <p className="text-[10px] text-gray-400 mt-1.5">Optional benchmark for evaluating whether a deal is worth pursuing.</p>
+          </div>
         </div>
       </div>
 
-      {/* Contract Settings */}
+      {/* 4. Manual Overrides */}
+      <div className="bg-white border border-gray-200 rounded-lg p-6">
+        <h2 className="text-sm font-semibold text-gray-900">Manual Overrides</h2>
+        <p className="text-xs text-gray-500 mt-1 mb-4">Control whether proposed prices can be adjusted after system suggestions</p>
+
+        <label className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-gray-900">Allow manual price overrides</p>
+            <p className="text-xs text-gray-500 mt-0.5">Let proposed prices be adjusted per medication after system suggestions are generated.</p>
+            {mode === "manual" && (
+              <p className="text-[10px] text-gray-400 mt-1 italic">Always enabled in Manual Pricing mode.</p>
+            )}
+          </div>
+          <Toggle on={allowManualOverrides} onToggle={() => {
+            if (mode === "manual") return; // Always on for manual mode
+            setAllowManualOverrides(!allowManualOverrides);
+          }} disabled={mode === "manual"} />
+        </label>
+      </div>
+
+      {/* 5. Contract Settings */}
       <div className="bg-white border border-gray-200 rounded-lg p-6">
         <h2 className="text-sm font-semibold text-gray-900">Contract Settings</h2>
         <p className="text-xs text-gray-500 mt-1 mb-4">Configure contract terms and pricing freshness</p>

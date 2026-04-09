@@ -6,6 +6,15 @@ import { updateProgramPricing } from "@/lib/actions";
 import { formatCurrency, getPricingUnit } from "@/lib/pricing";
 import { Drawer } from "./drawer";
 
+interface Guardrails {
+  pricingMode: string;
+  enableMarkupGuidance: boolean;
+  defaultMarkupPct: number;
+  preventNegativeMargin: boolean;
+  highlightLowMargin: boolean;
+  minimumTargetFeePerScript: number | null;
+}
+
 interface Props {
   open: boolean;
   onClose: () => void;
@@ -16,6 +25,7 @@ interface Props {
   bestCost: number | null;
   bestCostPharmacy: string | null;
   defaultTermMonths: number;
+  guardrails?: Guardrails;
 }
 
 const BISK_FEE = 5.00;
@@ -44,7 +54,7 @@ function marketRange(cost: number, qty: number): { low: number; high: number } {
 
 const inputClass = "w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500";
 
-export function UpdateProgramPriceDrawer({ open, onClose, medicationId, medicationName, medicationForm, currentPrice, bestCost, bestCostPharmacy, defaultTermMonths }: Props) {
+export function UpdateProgramPriceDrawer({ open, onClose, medicationId, medicationName, medicationForm, currentPrice, bestCost, bestCostPharmacy, defaultTermMonths, guardrails }: Props) {
   const router = useRouter();
   const unit = getPricingUnit(medicationForm);
   const defaultQty = defaultQtyForUnit(unit);
@@ -64,13 +74,19 @@ export function UpdateProgramPriceDrawer({ open, onClose, medicationId, medicati
   useEffect(() => {
     if (open) {
       setMonthlyQty(String(defaultQty));
-      setSelectedPrice(currentPrice?.toFixed(2) ?? "");
+      // Pre-fill: use current price, or markup suggestion if markup/hybrid mode
+      let initialPrice = currentPrice?.toFixed(2) ?? "";
+      if (!initialPrice && bestCost != null && guardrails?.enableMarkupGuidance && (guardrails.pricingMode === "markup" || guardrails.pricingMode === "hybrid")) {
+        const suggested = Math.round(bestCost * (1 + guardrails.defaultMarkupPct / 100) * 100) / 100;
+        initialPrice = suggested.toFixed(2);
+      }
+      setSelectedPrice(initialPrice);
       setEffectiveFrom(new Date().toISOString().slice(0, 10));
       const d = new Date(); d.setMonth(d.getMonth() + defaultTermMonths);
       setEffectiveThrough(d.toISOString().slice(0, 10));
       setNotes(""); setError(""); setSuccess(false);
     }
-  }, [open, currentPrice, defaultTermMonths, defaultQty]);
+  }, [open, currentPrice, defaultTermMonths, defaultQty, bestCost, guardrails]);
 
   const qty = parseInt(monthlyQty) || 1;
   const price = parseFloat(selectedPrice);
@@ -175,6 +191,11 @@ export function UpdateProgramPriceDrawer({ open, onClose, medicationId, medicati
             </div>
           )}
 
+          {/* Markup suggestion notice */}
+          {!currentPrice && bestCost != null && guardrails?.enableMarkupGuidance && (guardrails.pricingMode === "markup" || guardrails.pricingMode === "hybrid") && (
+            <p className="text-[10px] text-indigo-500">Pre-filled from {guardrails.defaultMarkupPct}% markup guidance. {guardrails.pricingMode === "hybrid" ? "Adjust as needed." : ""}</p>
+          )}
+
           {/* Selected price + market comparison */}
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Your Price ($ per {unit})</label>
@@ -247,6 +268,27 @@ export function UpdateProgramPriceDrawer({ open, onClose, medicationId, medicati
               <span>Bisk fee: {formatCurrency(BISK_FEE)} / script</span>
             </div>
           )}
+
+          {/* Guardrail warnings */}
+          {hasValidPrice && bestCost != null && (() => {
+            const warnings: { type: "error" | "warn"; msg: string }[] = [];
+            if (guardrails?.preventNegativeMargin && price < bestCost) {
+              warnings.push({ type: "error", msg: "Price is below pharmacy cost \u2014 negative margin." });
+            }
+            if (guardrails?.highlightLowMargin && guardrails.minimumTargetFeePerScript != null && (price - bestCost) < guardrails.minimumTargetFeePerScript && (price >= bestCost)) {
+              warnings.push({ type: "warn", msg: `Margin below minimum target fee of ${formatCurrency(guardrails.minimumTargetFeePerScript)} per script.` });
+            }
+            if (warnings.length === 0) return null;
+            return (
+              <div className="space-y-2">
+                {warnings.map((w, i) => (
+                  <div key={i} className={`rounded-md px-3 py-2 text-xs ${w.type === "error" ? "bg-red-50 border border-red-200 text-red-700" : "bg-amber-50 border border-amber-200 text-amber-700"}`}>
+                    {w.msg}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
 
           {bestCost == null && (
             <div className="rounded-md px-3 py-2 bg-amber-50 border border-amber-200">

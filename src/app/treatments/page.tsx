@@ -34,6 +34,14 @@ export default async function PricingPage({ searchParams }: Props) {
         currentSearch={search}
         currentStatus={status}
         defaultContractTermMonths={strategy.defaultContractTermMonths}
+        guardrails={{
+          pricingMode: strategy.mode,
+          enableMarkupGuidance: strategy.enableMarkupGuidance,
+          defaultMarkupPct: strategy.defaultMarkupPct,
+          preventNegativeMargin: strategy.preventNegativeMargin,
+          highlightLowMargin: strategy.highlightLowMargin,
+          minimumTargetFeePerScript: strategy.minimumTargetFeePerScript,
+        }}
       />
     </div>
   );
