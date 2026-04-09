@@ -21,7 +21,7 @@ export function ProposalAcceptButton({ proposalId }: { proposalId: string }) {
 
   if (accepted) {
     return (
-      <div className="text-green-700 text-sm font-medium">
+      <div className="text-gray-900 text-sm font-semibold">
         {"\u2713"} Pricing confirmed
       </div>
     );
@@ -29,8 +29,8 @@ export function ProposalAcceptButton({ proposalId }: { proposalId: string }) {
 
   return (
     <button onClick={handleAccept} disabled={accepting}
-      className="bg-indigo-600 text-white rounded-lg px-8 py-3.5 text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 transition-colors">
-      {accepting ? "Confirming..." : "Accept Pricing"}
+      className="bg-gray-900 text-white rounded-md px-5 py-2.5 text-[14px] font-semibold hover:bg-gray-800 disabled:opacity-50 transition-colors">
+      {accepting ? "Confirming..." : "Confirm Pricing"}
     </button>
   );
 }
