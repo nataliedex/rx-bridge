@@ -18,8 +18,8 @@ export function MedicationActions() {
   );
 }
 
-export function PharmacyActions() {
-  const [open, setOpen] = useState(false);
+export function PharmacyActions({ autoOpen }: { autoOpen?: boolean } = {}) {
+  const [open, setOpen] = useState(autoOpen ?? false);
   return (
     <>
       <button onClick={() => setOpen(true)}

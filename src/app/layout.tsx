@@ -4,8 +4,8 @@ import { TopNav } from "@/components/top-nav";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Rx-Bridge",
-  description: "Prescription order bridge for compound pharmacies",
+  title: "Bisk",
+  description: "GPO pricing platform for compound pharmacies",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -15,8 +15,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <nav className="bg-white border-b border-gray-200">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="flex justify-between h-14 items-center">
-              <Link href="/orders" className="font-bold text-lg text-indigo-600">
-                Rx-Bridge
+              <Link href="/" className="font-bold text-lg text-indigo-600">
+                Bisk
               </Link>
               <TopNav />
             </div>

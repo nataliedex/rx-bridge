@@ -1,19 +1,19 @@
-import { getRoutingPolicyAction } from "@/lib/actions";
-import { RoutingPolicyEditor } from "@/components/routing-policy-editor";
+import { getPricingStrategy } from "@/lib/actions";
+import { PricingStrategyEditor } from "@/components/pricing-strategy-editor";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const { policy, defaults } = await getRoutingPolicyAction();
+  const strategy = await getPricingStrategy();
 
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-semibold">Settings</h1>
-        <p className="text-sm text-gray-500 mt-1">Internal configuration for Rx-Bridge routing and operations</p>
+        <p className="text-sm text-gray-500 mt-1">Platform configuration</p>
       </div>
 
-      <RoutingPolicyEditor policy={policy} defaults={defaults} />
+      <PricingStrategyEditor initial={strategy} />
     </div>
   );
 }

@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getMedication } from "@/lib/actions";
+import { getMedication, getPricingStrategy, getActiveProgramPrice } from "@/lib/actions";
 import { prisma } from "@/lib/db";
-import { formatCurrency, formatPercent, getPricingUnit } from "@/lib/pricing";
+import { formatCurrency, formatPercent, getPricingUnit, calcSellPriceFromMarkup } from "@/lib/pricing";
 import { MedicationPricingTable } from "@/components/medication-pricing-table";
 
 export const dynamic = "force-dynamic";
@@ -11,28 +11,25 @@ interface Props {
   params: Promise<{ id: string }>;
 }
 
-const FRESH_DAYS = 30;
-const AGING_DAYS = 60;
+type HealthStatus = "verified" | "stale";
 
-type HealthStatus = "fresh" | "aging" | "stale";
-
-function classifyFreshness(verifiedAt: Date | null): HealthStatus {
+function classifyFreshness(verifiedAt: Date | null, freshnessMonths: number): HealthStatus {
   if (!verifiedAt) return "stale";
   const days = (Date.now() - verifiedAt.getTime()) / (1000 * 60 * 60 * 24);
-  if (days > AGING_DAYS) return "stale";
-  if (days > FRESH_DAYS) return "aging";
-  return "fresh";
+  if (days <= freshnessMonths * 30) return "verified";
+  return "stale";
 }
 
 export default async function MedicationDetailPage({ params }: Props) {
   const { id } = await params;
-  const [medication, allPharmacies] = await Promise.all([
+  const [medication, allPharmacies, pricingStrategy] = await Promise.all([
     getMedication(id),
     prisma.pharmacy.findMany({ where: { archivedAt: null }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    getPricingStrategy(),
   ]);
   if (!medication) notFound();
 
-  const sellPrice = medication.sellPrice;
+  const sellPrice = await getActiveProgramPrice(medication.id); // Source of truth: ProgramPricing
 
   const activePrices = medication.priceHistory
     .filter((p) => p.endDate === null)
@@ -44,16 +41,14 @@ export default async function MedicationDetailPage({ params }: Props) {
   const lowestPrice = activePrices.length > 0 ? activePrices[0].price : null;
 
   // Pricing health — per-pharmacy breakdown
-  const freshPharmacies: string[] = [];
-  const agingPharmacies: string[] = [];
+  const verifiedPharmacies: string[] = [];
   const stalePharmacies: string[] = [];
   const pricedPharmacyIds = new Set<string>();
 
   for (const p of activePrices) {
     pricedPharmacyIds.add(p.pharmacy.id);
-    const status = classifyFreshness(p.verifiedAt);
-    if (status === "fresh") freshPharmacies.push(p.pharmacy.name);
-    else if (status === "aging") agingPharmacies.push(p.pharmacy.name);
+    const status = classifyFreshness(p.verifiedAt, pricingStrategy.freshnessMonths);
+    if (status === "verified") verifiedPharmacies.push(p.pharmacy.name);
     else stalePharmacies.push(p.pharmacy.name);
   }
 
@@ -61,11 +56,10 @@ export default async function MedicationDetailPage({ params }: Props) {
     .filter((ph) => !pricedPharmacyIds.has(ph.id))
     .map((ph) => ph.name);
 
-  const freshCount = freshPharmacies.length;
-  const agingCount = agingPharmacies.length;
+  const verifiedCount = verifiedPharmacies.length;
   const staleCount = stalePharmacies.length;
   const missingCount = missingPharmacies.length;
-  const hasIssues = staleCount + agingCount + missingCount > 0;
+  const hasIssues = staleCount + missingCount > 0;
 
   const historyByPharmacy: Record<string, typeof historicalPrices> = {};
   for (const entry of historicalPrices) {
@@ -92,20 +86,15 @@ export default async function MedicationDetailPage({ params }: Props) {
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className={`text-sm font-medium ${hasIssues ? "text-amber-800" : "text-green-800"}`}>
-                        Pricing Health
+                        Pricing Status
                       </h3>
                       <span className="text-[10px] text-gray-400 group-open:hidden">Show breakdown</span>
                       <span className="text-[10px] text-gray-400 hidden group-open:inline">Hide breakdown</span>
                     </div>
                     <div className="flex items-center gap-3 mt-1">
                       <span className="text-[12px] text-gray-600">
-                        <span className="font-medium text-green-700">{freshCount}</span> fresh
+                        <span className="font-medium text-green-700">{verifiedCount}</span> verified
                       </span>
-                      {agingCount > 0 && (
-                        <span className="text-[12px] text-amber-600 font-medium">
-                          {agingCount} aging
-                        </span>
-                      )}
                       {staleCount > 0 && (
                         <span className="text-[12px] text-red-600 font-medium">
                           {staleCount} stale
@@ -119,9 +108,9 @@ export default async function MedicationDetailPage({ params }: Props) {
                     </div>
                   </div>
                   {hasIssues && (
-                    <Link href={`/medications/audit?medication=${medication.id}`}
+                    <Link href={`/treatments?medication=${medication.id}`}
                       className="text-xs text-indigo-600 hover:text-indigo-800 font-medium shrink-0">
-                      Open Pricing Audit
+                      View Pricing
                     </Link>
                   )}
                 </div>
@@ -130,25 +119,18 @@ export default async function MedicationDetailPage({ params }: Props) {
               {/* Per-pharmacy breakdown */}
               <div className="px-4 pb-4 pt-1 border-t border-gray-200/60">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                  {freshCount > 0 && (
+                  {verifiedCount > 0 && (
                     <div>
-                      <p className="text-green-700 font-medium mb-0.5">Fresh ({freshCount})</p>
-                      <p className="text-gray-600 leading-relaxed">{freshPharmacies.join(", ")}</p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">Verified within {FRESH_DAYS} days</p>
-                    </div>
-                  )}
-                  {agingCount > 0 && (
-                    <div>
-                      <p className="text-amber-600 font-medium mb-0.5">Aging ({agingCount})</p>
-                      <p className="text-gray-600 leading-relaxed">{agingPharmacies.join(", ")}</p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">Verified {FRESH_DAYS}–{AGING_DAYS} days ago</p>
+                      <p className="text-green-700 font-medium mb-0.5">Verified ({verifiedCount})</p>
+                      <p className="text-gray-600 leading-relaxed">{verifiedPharmacies.join(", ")}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">Updated within {pricingStrategy.freshnessMonths} months</p>
                     </div>
                   )}
                   {staleCount > 0 && (
                     <div>
                       <p className="text-red-600 font-medium mb-0.5">Stale ({staleCount})</p>
                       <p className="text-gray-600 leading-relaxed">{stalePharmacies.join(", ")}</p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">Not verified in over {AGING_DAYS} days, or never verified</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">Not updated in over {pricingStrategy.freshnessMonths} months</p>
                     </div>
                   )}
                   {missingCount > 0 && (
@@ -167,12 +149,13 @@ export default async function MedicationDetailPage({ params }: Props) {
             medicationId={medication.id}
             medicationName={medication.name}
             medicationForm={medication.form}
+            pricingStrategy={pricingStrategy}
             activePrices={activePrices.map((p) => ({
               id: p.id,
               price: p.price,
               effectiveDate: p.effectiveDate.toISOString(),
               verifiedAt: p.verifiedAt?.toISOString() ?? null,
-              freshness: classifyFreshness(p.verifiedAt),
+              freshness: classifyFreshness(p.verifiedAt, pricingStrategy.freshnessMonths),
               notes: p.notes,
               pharmacy: { id: p.pharmacy.id, name: p.pharmacy.name },
             }))}
@@ -188,14 +171,14 @@ export default async function MedicationDetailPage({ params }: Props) {
                 })),
               ])
             )}
-            sellPrice={sellPrice}
+            programPrice={sellPrice}
           />
         </div>
 
         {/* Summary sidebar */}
         <div className="space-y-6">
           <div className="bg-white border border-gray-200 rounded-lg p-6">
-            <h3 className="text-sm font-medium text-gray-900 mb-3">Summary</h3>
+            <h3 className="text-sm font-medium text-gray-900 mb-3">Treatment Economics</h3>
             <div className="space-y-2">
               <div>
                 <p className="text-xs text-gray-500">Medication</p>
@@ -209,28 +192,51 @@ export default async function MedicationDetailPage({ params }: Props) {
                 <p className="text-xs text-gray-500">Strength</p>
                 <p className="text-sm">{medication.strength}</p>
               </div>
-              {sellPrice != null && (
-                <div className="border-t border-gray-100 pt-2">
-                  <p className="text-xs text-gray-500">Sell Price</p>
-                  <p className="text-lg font-bold text-gray-900">{formatCurrency(sellPrice)} <span className="text-sm font-normal text-gray-400">/ {getPricingUnit(medication.form)}</span></p>
-                </div>
-              )}
               {lowestPrice !== null && (
                 <div className="border-t border-gray-100 pt-2">
-                  <p className="text-xs text-gray-500">Best Pharmacy Cost</p>
+                  <p className="text-xs text-gray-500">Best Your Cost</p>
                   <p className="text-lg font-bold text-green-700">{formatCurrency(lowestPrice)} <span className="text-sm font-normal text-gray-400">/ {getPricingUnit(medication.form)}</span></p>
                   <p className="text-xs text-gray-400">{activePrices[0]?.pharmacy.name}</p>
-                  {sellPrice != null && (() => {
-                    const margin = sellPrice - lowestPrice;
-                    const pct = sellPrice > 0 ? margin / sellPrice : 0;
-                    return (
-                      <p className={`text-xs font-medium mt-0.5 ${margin >= 0 ? "text-green-600" : "text-red-600"}`}>
-                        {formatCurrency(margin)} margin ({formatPercent(pct)})
-                      </p>
-                    );
-                  })()}
                 </div>
               )}
+              {lowestPrice !== null && (() => {
+                const suggestedSell = calcSellPriceFromMarkup(lowestPrice, pricingStrategy.defaultMarkupPct);
+                const actualSell = sellPrice ?? suggestedSell;
+                const isOverridden = sellPrice != null && Math.abs(sellPrice - suggestedSell) > 0.01;
+                const grossProfit = actualSell - lowestPrice;
+                const pct = actualSell > 0 ? grossProfit / actualSell : 0;
+                return (
+                  <>
+                    <div className="border-t border-gray-100 pt-2">
+                      <p className="text-xs text-gray-500">Suggested Client Price</p>
+                      <p className="text-sm font-medium text-gray-600">{formatCurrency(suggestedSell)} <span className="text-xs font-normal text-gray-400">/ {getPricingUnit(medication.form)}</span></p>
+                      <p className="text-[10px] text-gray-400">{pricingStrategy.defaultMarkupPct}% markup</p>
+                    </div>
+                    <div className="border-t border-gray-100 pt-2">
+                      <p className="text-xs text-gray-500">Current Client Price</p>
+                      <p className="text-lg font-bold text-gray-900">
+                        {formatCurrency(actualSell)} <span className="text-sm font-normal text-gray-400">/ {getPricingUnit(medication.form)}</span>
+                      </p>
+                      {isOverridden && (() => {
+                        const diff = Math.round((actualSell - suggestedSell) * 100) / 100;
+                        return (
+                          <p className="text-[10px] mt-0.5">
+                            <span className={`font-medium px-1 py-0.5 rounded ${diff > 0 ? "text-amber-600 bg-amber-50" : "text-blue-600 bg-blue-50"}`}>
+                              {diff > 0 ? `+${formatCurrency(diff)} Above Suggested` : `${formatCurrency(diff)} Below Suggested`}
+                            </span>
+                          </p>
+                        );
+                      })()}
+                    </div>
+                    <div className="border-t border-gray-100 pt-2">
+                      <p className="text-xs text-gray-500">Your Profit (best cost)</p>
+                      <p className={`text-sm font-bold ${grossProfit >= 0 ? "text-green-600" : "text-red-600"}`}>
+                        {formatCurrency(grossProfit)} <span className="font-normal text-xs">({formatPercent(pct)} margin)</span>
+                      </p>
+                    </div>
+                  </>
+                );
+              })()}
               {historicalPrices.length > 0 && (
                 <div className="border-t border-gray-100 pt-2">
                   <p className="text-xs text-gray-400">{historicalPrices.length} historical price record{historicalPrices.length !== 1 ? "s" : ""}</p>
@@ -239,9 +245,9 @@ export default async function MedicationDetailPage({ params }: Props) {
             </div>
           </div>
 
-          <Link href={`/medications/audit?medication=${medication.id}`}
+          <Link href={`/treatments?medication=${medication.id}`}
             className="block bg-white border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
-            <p className="text-sm font-medium text-indigo-600">View Pricing Audit</p>
+            <p className="text-sm font-medium text-indigo-600">View Pricing</p>
             <p className="text-xs text-gray-500 mt-0.5">Check freshness and verify prices across pharmacies</p>
           </Link>
         </div>

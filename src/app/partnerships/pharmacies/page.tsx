@@ -1,11 +1,15 @@
 import { getAllPharmaciesForAdmin } from "@/lib/actions";
-import { PartnershipsTabs } from "@/components/partnerships-tabs";
 import { PharmacyList } from "@/components/pharmacy-list";
 import { PharmacyActions } from "@/components/network-actions";
 
 export const dynamic = "force-dynamic";
 
-export default async function PharmaciesPage() {
+interface Props {
+  searchParams: Promise<{ new?: string }>;
+}
+
+export default async function PharmaciesPage({ searchParams }: Props) {
+  const params = await searchParams;
   const pharmacies = await getAllPharmaciesForAdmin();
 
   return (
@@ -13,13 +17,12 @@ export default async function PharmaciesPage() {
       <div className="shrink-0">
         <div className="flex justify-between items-center mb-4">
           <div>
-            <h1 className="text-2xl font-semibold">Partnerships</h1>
-            <p className="text-sm text-gray-500 mt-1">Pharmacy management</p>
+            <h1 className="text-2xl font-semibold">Pharmacies</h1>
+            <p className="text-sm text-gray-500 mt-1">{pharmacies.length} partner{pharmacies.length !== 1 ? "s" : ""}</p>
           </div>
-          <PharmacyActions />
+          <PharmacyActions autoOpen={params.new === "1"} />
         </div>
 
-        <PartnershipsTabs />
       </div>
 
       <PharmacyList pharmacies={pharmacies} />

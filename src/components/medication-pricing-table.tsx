@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { formatCurrency, getPricingUnit } from "@/lib/pricing";
+import { formatCurrency, getPricingUnit, calcSellPriceFromMarkup } from "@/lib/pricing";
 import { removeMedicationFromPharmacy, markPriceVerified } from "@/lib/actions";
 import { UpdatePriceDrawer } from "./update-price-drawer";
 import { ConfirmAction } from "./confirm-action";
 
-type Freshness = "fresh" | "aging" | "stale";
+type Freshness = "verified" | "stale";
 
 function shortDate(iso: string): string {
   const d = new Date(iso);
@@ -15,8 +15,7 @@ function shortDate(iso: string): string {
 }
 
 const STATUS_STYLES: Record<Freshness, { label: string; bg: string; text: string }> = {
-  fresh: { label: "Fresh", bg: "bg-green-100", text: "text-green-700" },
-  aging: { label: "Aging", bg: "bg-amber-100", text: "text-amber-700" },
+  verified: { label: "Verified", bg: "bg-green-100", text: "text-green-700" },
   stale: { label: "Stale", bg: "bg-red-100", text: "text-red-700" },
 };
 
@@ -44,10 +43,11 @@ interface Props {
   medicationForm: string;
   activePrices: PriceEntry[];
   historyByPharmacy: Record<string, HistoryEntry[]>;
-  sellPrice?: number | null;
+  programPrice?: number | null;
+  pricingStrategy: { mode: string; defaultMarkupPct: number };
 }
 
-export function MedicationPricingTable({ medicationId, medicationName, medicationForm, activePrices, historyByPharmacy, sellPrice }: Props) {
+export function MedicationPricingTable({ medicationId, medicationName, medicationForm, activePrices, historyByPharmacy, programPrice, pricingStrategy }: Props) {
   const router = useRouter();
   const [editing, setEditing] = useState<{ pharmacyId: string; pharmacyName: string; currentPrice: number } | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -90,7 +90,7 @@ export function MedicationPricingTable({ medicationId, medicationName, medicatio
     <>
       <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-200 bg-gray-50">
-          <h2 className="text-sm font-medium text-gray-900">Current Pricing</h2>
+          <h2 className="text-sm font-medium text-gray-900">Treatment Economics</h2>
           <p className="text-xs text-gray-500 mt-0.5">{activePrices.length} pharmac{activePrices.length !== 1 ? "ies" : "y"} with active pricing</p>
         </div>
 
@@ -114,10 +114,10 @@ export function MedicationPricingTable({ medicationId, medicationName, medicatio
             <thead>
               <tr className="border-b border-gray-100">
                 <th className="px-4 py-2 text-left text-[11px] font-medium text-gray-400 uppercase tracking-wider">Pharmacy</th>
-                <th className="px-4 py-2 text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider">Cost</th>
-                {sellPrice != null && (
-                  <th className="px-4 py-2 text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider">Margin</th>
-                )}
+                <th className="px-4 py-2 text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider">Your Cost</th>
+                <th className="px-4 py-2 text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider">Suggested Client</th>
+                <th className="px-4 py-2 text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider">Current Client</th>
+                <th className="px-4 py-2 text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider">Your Profit</th>
                 <th className="px-4 py-2 text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider">vs Lowest</th>
                 <th className="px-4 py-2 text-center text-[11px] font-medium text-gray-400 uppercase tracking-wider">Status</th>
                 <th className="px-4 py-2 text-right text-[11px] font-medium text-gray-400 uppercase tracking-wider">Verify</th>
@@ -129,7 +129,7 @@ export function MedicationPricingTable({ medicationId, medicationName, medicatio
                 const isLowest = idx === 0;
                 const diff = lowestPrice !== null ? p.price - lowestPrice : 0;
                 const pharmacyHistory = historyByPharmacy[p.pharmacy.id] || [];
-                const status = justVerified === p.id ? "fresh" as Freshness : p.freshness;
+                const status = justVerified === p.id ? "verified" as Freshness : p.freshness;
                 const style = STATUS_STYLES[status];
                 return (
                   <tr key={p.id} className={`border-b border-gray-50 ${isLowest ? "bg-green-50/50" : ""}`}>
@@ -157,13 +157,30 @@ export function MedicationPricingTable({ medicationId, medicationName, medicatio
                     <td className="px-4 py-2 text-right text-[13px] font-semibold text-gray-900 align-top">
                       {formatCurrency(p.price)} <span className="text-[10px] font-normal text-gray-400">/ {getPricingUnit(medicationForm)}</span>
                     </td>
-                    {sellPrice != null && (() => {
-                      const margin = sellPrice - p.price;
-                      const marginPct = sellPrice > 0 ? margin / sellPrice : 0;
+                    {(() => {
+                      const suggestedSell = calcSellPriceFromMarkup(p.price, pricingStrategy.defaultMarkupPct);
+                      const actualSell = programPrice ?? suggestedSell;
+                      const isOverridden = programPrice != null && Math.abs(programPrice - suggestedSell) > 0.01;
+                      const priceDiff = isOverridden ? Math.round((actualSell - suggestedSell) * 100) / 100 : 0;
+                      const grossProfit = actualSell - p.price;
+                      const marginPct = actualSell > 0 ? grossProfit / actualSell : 0;
                       return (
-                        <td className={`px-4 py-2 text-right text-[13px] align-top font-medium ${margin >= 0 ? "text-green-700" : "text-red-600"}`}>
-                          {formatCurrency(margin)} <span className="text-[10px] font-normal text-gray-400">({(marginPct * 100).toFixed(0)}%)</span>
-                        </td>
+                        <>
+                          <td className="px-4 py-2 text-right text-[13px] text-gray-400 align-top">
+                            {formatCurrency(suggestedSell)}
+                          </td>
+                          <td className="px-4 py-2 text-right align-top">
+                            <span className="text-[13px] text-gray-700">{formatCurrency(actualSell)}</span>
+                            {isOverridden && (
+                              <span className={`ml-1 text-[9px] font-medium px-1 py-0.5 rounded ${priceDiff > 0 ? "text-amber-600 bg-amber-50" : "text-blue-600 bg-blue-50"}`}>
+                                {priceDiff > 0 ? "Above" : "Below"}
+                              </span>
+                            )}
+                          </td>
+                          <td className={`px-4 py-2 text-right text-[13px] align-top font-medium ${grossProfit >= 0 ? "text-green-700" : "text-red-600"}`}>
+                            {formatCurrency(grossProfit)} <span className="text-[10px] font-normal text-gray-400">({(marginPct * 100).toFixed(0)}%)</span>
+                          </td>
+                        </>
                       );
                     })()}
                     <td className="px-4 py-2 text-right text-[13px] text-gray-400 align-top">
@@ -172,7 +189,7 @@ export function MedicationPricingTable({ medicationId, medicationName, medicatio
                     {/* Status */}
                     <td className="px-4 py-2 text-center align-top">
                       <span className={`inline-block text-[10px] font-medium px-2 py-0.5 rounded ${style.bg} ${style.text}`}>
-                        {justVerified === p.id ? "Fresh \u2713" : style.label}
+                        {justVerified === p.id ? "Verified \u2713" : style.label}
                       </span>
                       <p className="text-[10px] text-gray-300 mt-0.5 leading-none">
                         {justVerified === p.id ? "Just now" : p.verifiedAt ? shortDate(p.verifiedAt) : "Never verified"}
@@ -180,7 +197,7 @@ export function MedicationPricingTable({ medicationId, medicationName, medicatio
                     </td>
                     {/* Verify */}
                     <td className="px-4 py-2 text-right align-top">
-                      {status !== "fresh" ? (
+                      {status !== "verified" ? (
                         <button onClick={() => handleVerify(p.id)} disabled={verifying === p.id}
                           className="text-[11px] text-green-600 hover:text-green-800 disabled:opacity-50">
                           {verifying === p.id ? "..." : "Verify"}
@@ -212,6 +229,8 @@ export function MedicationPricingTable({ medicationId, medicationName, medicatio
           pharmacyId={editing.pharmacyId}
           pharmacyName={editing.pharmacyName}
           currentPrice={editing.currentPrice}
+          currentSellPrice={programPrice}
+          defaultMarkupPct={pricingStrategy.defaultMarkupPct}
           onRemove={handleRemoveFromDrawer}
         />
       )}

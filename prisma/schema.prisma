@@ -7,99 +7,56 @@ datasource db {
   url      = "file:./dev.db"
 }
 
-model SystemConfig {
+model AppConfig {
   key       String   @id
   value     String
   updatedAt DateTime @updatedAt
 }
 
 model Brand {
-  id               String   @id @default(cuid())
-  name             String
-  active           Boolean  @default(true)
-  contactName      String?
-  email            String?
-  phone            String?
-  website          String?
-  notes            String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  orders           Order[]
-  pharmacyConfigs  BrandPharmacyConfig[]
-  refillRequests   RefillRequest[]
-}
-
-model BrandPharmacyConfig {
-  id               String   @id @default(cuid())
-  brandId          String
-  pharmacyId       String
-  isActive         Boolean  @default(true)
-  isDefault        Boolean  @default(false)
-  routingPriority  Int      @default(0)
-  formatPreference String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  brand            Brand    @relation(fields: [brandId], references: [id])
-  pharmacy         Pharmacy @relation(fields: [pharmacyId], references: [id])
-
-  @@unique([brandId, pharmacyId])
-}
-
-model Patient {
-  id         String   @id @default(cuid())
-  firstName  String
-  lastName   String
-  dob        String
-  phone      String?
-  email      String?
-  address1   String?
-  address2   String?
-  city       String?
-  state      String?
-  zip        String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  orders         Order[]
-  refillRequests RefillRequest[]
-}
-
-model Prescriber {
-  id         String   @id @default(cuid())
-  name       String
-  npi        String   @unique
-  clinicName String?
-  phone      String?
-  fax        String?
-  email      String?
-  address    String?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  orders     Order[]
+  id          String    @id @default(cuid())
+  name        String
+  active      Boolean   @default(true)
+  contactName String?
+  email       String?
+  phone       String?
+  website     String?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  programs    Program[]
+  fillRecords FillRecord[]
 }
 
 model Pharmacy {
-  id               String    @id @default(cuid())
-  name             String
-  contactName      String?
-  phone            String?
-  fax              String?
-  email            String?
-  street           String?
-  city             String?
-  state            String?
-  zip              String?
-  serviceStates    String?  // JSON array of US state abbreviations, e.g. ["TX","CA","NY"]
-  formatPreference String   @default("standard")
-  requirementsJson String   @default("{}")
-  archivedAt       DateTime? // null = active; set to archive
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  orders           Order[]
-  transmissions    OrderTransmission[]
-  exportBatches    ExportBatch[]
-  brandConfigs     BrandPharmacyConfig[]
+  id            String    @id @default(cuid())
+  name          String
+  contactName   String?
+  phone         String?
+  fax           String?
+  email         String?
+  street        String?
+  city          String?
+  state         String?
+  zip           String?
+  serviceStates String?   // JSON array of US state abbreviations
+  archivedAt    DateTime?
+  // Contract term — contract-level, not per medication
+  contractEffectiveFrom    DateTime? // when this contract version starts
+  contractEffectiveThrough DateTime? // when this contract version ends
+  contractStatus           String    @default("active") // active | superseded
+  contractSupersededAt     DateTime?
+  // Contract verification
+  contractVerifiedAt     DateTime?
+  contractVerifiedBy     String?   // user identifier
+  contractVerificationMethod String? // confirmed | imported | estimated | renewal
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
   medicationPriceHistory MedicationPriceEntry[]
-  refillRequests   RefillRequest[]
+  programs       Program[]
+  fillRecords    FillRecord[]
+  medSpaOrders   MedSpaOrder[]
+  contractAuditLogs ContractAuditLog[]
 }
 
 model Medication {
@@ -107,9 +64,29 @@ model Medication {
   name       String
   form       String
   strength   String
-  sellPrice  Float?   // Rx-Bridge negotiated sell price — same for all brands
+  sellPrice  Float?   // legacy — use ProgramPricing for current price
   createdAt  DateTime @default(now())
-  priceHistory MedicationPriceEntry[]
+  priceHistory     MedicationPriceEntry[]
+  programPricing   ProgramPricing[]
+  programs         Program[]
+  fillRecords      FillRecord[]
+  medSpaOrders     MedSpaOrder[]
+}
+
+// Versioned program pricing — the global price Rx-Bridge charges med spas
+model ProgramPricing {
+  id               String    @id @default(cuid())
+  medicationId     String
+  price            Float
+  effectiveFrom    DateTime
+  effectiveThrough DateTime?
+  status           String    @default("active") // active | superseded
+  supersededAt     DateTime?
+  notes            String?
+  createdBy        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  medication       Medication @relation(fields: [medicationId], references: [id])
 }
 
 model MedicationPriceEntry {
@@ -118,166 +95,216 @@ model MedicationPriceEntry {
   pharmacyId         String
   price              Float
   effectiveDate      DateTime  @default(now())
-  endDate            DateTime? // null = currently active
+  endDate            DateTime?
   notes              String?
-  verifiedAt         DateTime? // last verification timestamp
-  verificationSource String?   // "manual_update" | "pharmacy_confirmed" | "contract_import" | "system_import"
+  verifiedAt         DateTime?
+  verificationSource String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   medication         Medication @relation(fields: [medicationId], references: [id])
   pharmacy           Pharmacy   @relation(fields: [pharmacyId], references: [id])
 }
 
-model Order {
-  id             String   @id @default(cuid())
-  brandId        String?
-  patientId      String
-  prescriberId   String
-  pharmacyId     String
-
-  medicationName String
-  strength       String?
-  dosageForm     String?
-  route          String?
-  directions     String?
-  quantity       Int?
-  refills        Int      @default(0)
-  daysSupply     Int?
-  icd10          String?
-  rxNotes        String?
-
-  orderSource    String   @default("manual")
-  sourceRef      String?
-  priority       String   @default("normal")
-  internalNotes  String?
-  status         String   @default("draft")
-
-  // Send Readiness — computed from open issues. Separate from human-driven status.
-  sendReadiness  String   @default("missing_data")
-
-  // Pricing — JSON string: { gpoPrice, retailEstimate, savingsAbsolute, savingsPercent }
-  pricingJson    String?
-
-  // Routing — how the pharmacy was selected
-  routingMethod  String?  // "auto" | "manual" | null (legacy)
-  routingJson    String?  // JSON: { recommendedPharmacyId, price, reason, alternatives, computedAt }
-
-  rawPayload     String?
-
-  completedAt    DateTime? // set when order reaches completed status
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  brand          Brand?        @relation(fields: [brandId], references: [id])
-  patient        Patient       @relation(fields: [patientId], references: [id])
-  prescriber     Prescriber    @relation(fields: [prescriberId], references: [id])
-  pharmacy       Pharmacy      @relation(fields: [pharmacyId], references: [id])
-  statusHistory      OrderStatusHistory[]
-  issues             Issue[]
-  transmissions      OrderTransmission[]
-  correctionRequests CorrectionRequest[]
-  refillRequests     RefillRequest[]
-}
-
-model OrderStatusHistory {
-  id        String   @id @default(cuid())
-  orderId   String
-  status    String
-  note      String?
-  createdAt DateTime @default(now())
-  order     Order    @relation(fields: [orderId], references: [id])
-}
-
-// Unified issue model — single source of truth for why an order is blocked.
-model Issue {
+// A pricing contract between a brand and pharmacy for a specific medication
+model Program {
   id             String    @id @default(cuid())
-  orderId        String
-  type           String    @default("missing_required_field") // missing_required_field, validation_warning, clarification_request, manual_review
-  severity       String    @default("blocking") // blocking, warning, info
-  source         String    @default("system") // system, rx_bridge_user, brand, pharmacy
-  fieldPath      String?   // dot-path like "medication.directions", null for manual issues
-  title          String
-  message        String
-  status         String    @default("open") // open, resolved, dismissed
-  resolutionNote String?
+  brandId        String
+  pharmacyId     String
+  medicationId   String
+  negotiatedRate Float
+  effectiveStart DateTime
+  effectiveEnd   DateTime?
+  referenceCode  String    @unique
+  status         String    @default("active") // active | inactive | expired
+  notes          String?
   createdAt      DateTime  @default(now())
-  resolvedAt     DateTime?
-  order          Order     @relation(fields: [orderId], references: [id])
+  updatedAt      DateTime  @updatedAt
+  brand          Brand      @relation(fields: [brandId], references: [id])
+  pharmacy       Pharmacy   @relation(fields: [pharmacyId], references: [id])
+  medication     Medication @relation(fields: [medicationId], references: [id])
+
+  @@unique([brandId, pharmacyId, medicationId])
 }
 
-model CorrectionRequest {
-  id            String    @id @default(cuid())
-  orderId       String
-  reason        String    // summary of what needs correcting
-  requestedFrom String   // "provider" | "clinician" | "brand"
-  message       String?   // detailed message to the recipient
-  status        String    @default("open") // open | resolved
-  resolvedAt    DateTime?
-  resolutionNote String?
-  createdAt     DateTime  @default(now())
-  order         Order     @relation(fields: [orderId], references: [id])
+model MedSpa {
+  id               String        @id @default(cuid())
+  name             String
+  city             String?
+  state            String?
+  contactName      String?
+  email            String?
+  phone            String?
+  pipelineStage    String        @default("lead") // lead | contacted | pricing_requested | pricing_sent | negotiating | won | lost
+  currentVendor    String?       // e.g. "Direct from pharmacy", "Another GPO"
+  estMonthlyVolume String?       // e.g. "$5,000 - $10,000"
+  nextStep         String?       // free text: "Schedule pricing call", "Send proposal"
+  lastContactedAt  DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  orders           MedSpaOrder[]
+  pricingLines     MedSpaPricingLine[]
+  notes            MedSpaNote[]
+  fulfilledOrders  MedSpaFulfilledOrder[]
+  pricingAgreements MedSpaPricingAgreement[]
+  statements       MedSpaStatement[]
+  proposals        MedSpaProposal[]
 }
 
-model OrderTransmission {
-  id              String       @id @default(cuid())
-  orderId         String
-  pharmacyId      String
-  method          String       @default("manual")
-  payloadSnapshot String
-  overrideUsed    Boolean      @default(false)
-  batchId         String?
-  sentAt          DateTime     @default(now())
-  order           Order        @relation(fields: [orderId], references: [id])
-  pharmacy        Pharmacy     @relation(fields: [pharmacyId], references: [id])
-  batch           ExportBatch? @relation(fields: [batchId], references: [id])
+// Proposal sent to a med spa client — tracks send/view/accept lifecycle
+model MedSpaProposal {
+  id               String    @id @default(cuid())
+  medSpaId         String
+  status           String    @default("draft") // draft | sent | viewed | accepted
+  recipientEmail   String?
+  message          String?
+  sentAt           DateTime?
+  viewedAt         DateTime?
+  acceptedAt       DateTime?
+  monthlySavings   Float     @default(0)
+  monthlyProfit    Float     @default(0)
+  pricingSnapshot  String    // JSON of proposed pricing rows
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  medSpa           MedSpa    @relation(fields: [medSpaId], references: [id])
 }
 
-model ExportBatch {
-  id            String              @id @default(cuid())
+// Monthly statement — tracks what a med spa owes for a given month
+model MedSpaStatement {
+  id             String    @id @default(cuid())
+  medSpaId       String
+  month          String    // YYYY-MM format
+  status         String    @default("draft") // draft | sent | paid | overdue
+  statementDate  DateTime?
+  dueDate        DateTime?
+  totalScripts   Int       @default(0)
+  pharmacySpend  Float     @default(0)
+  biskFees       Float     @default(0)
+  totalCost      Float     @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  medSpa         MedSpa    @relation(fields: [medSpaId], references: [id])
+
+  @@unique([medSpaId, month])
+}
+
+// Versioned pricing agreement — what the med spa has agreed to pay
+model MedSpaPricingAgreement {
+  id               String    @id @default(cuid())
+  medSpaId         String
+  status           String    @default("draft") // draft | active | superseded | expired
+  effectiveFrom    DateTime
+  effectiveThrough DateTime
+  notes            String?
+  createdBy        String?
+  supersededAt     DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  medSpa           MedSpa    @relation(fields: [medSpaId], references: [id])
+  lines            MedSpaPricingAgreementLine[]
+}
+
+// Individual medication line within an agreement
+model MedSpaPricingAgreementLine {
+  id                 String   @id @default(cuid())
+  agreementId        String
+  medicationId       String
+  medicationName     String   // denormalized for display
+  agreedPrice        Float
+  pharmacyId         String?  // selected pharmacy for fulfillment
+  pharmacyName       String?  // denormalized
+  estimatedMonthlyQty Int?
+  createdAt          DateTime @default(now())
+  agreement          MedSpaPricingAgreement @relation(fields: [agreementId], references: [id])
+}
+
+// User-entered current pricing for a med spa (what they pay today)
+model MedSpaPricingLine {
+  id              String    @id @default(cuid())
+  medSpaId        String
+  medicationName  String
+  currentCost     Float
+  unit            String    @default("unit") // capsule, vial, tube, bottle, unit
+  monthlyQty      Int
+  currentVendor   String?
+  pricingSource   String?   // e.g. "Invoice", "Verbal quote", "Website"
+  confirmedAt     DateTime?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  medSpa          MedSpa    @relation(fields: [medSpaId], references: [id])
+}
+
+// Activity log for deal tracking
+model MedSpaNote {
+  id        String   @id @default(cuid())
+  medSpaId  String
+  note      String
+  type      String   @default("note") // note | call | email | meeting | pricing | follow_up
+  createdAt DateTime @default(now())
+  medSpa    MedSpa   @relation(fields: [medSpaId], references: [id])
+}
+
+// Actual fulfilled orders — post-close performance tracking
+model MedSpaFulfilledOrder {
+  id                   String   @id @default(cuid())
+  orderNumber          String?  @unique // ORD-YYYYMM-### format
+  medSpaId             String
+  orderDate            DateTime
+  medicationName       String
+  quantity             Int
+  pharmacyName         String
+  medSpaPaid           Float    // what the med spa actually paid (revenue)
+  pharmacyCost         Float    // what the pharmacy actually billed
+  contractPriceAtTime  Float?   // expected contract price per unit at time of order
+  biskFeeAtTime        Float?   // Bisk fee per script at time of order
+  status               String   @default("fulfilled") // fulfilled | pending | sent_to_pharmacy | delivered
+  notes                String?
+  createdAt            DateTime @default(now())
+  medSpa               MedSpa   @relation(fields: [medSpaId], references: [id])
+}
+
+model MedSpaOrder {
+  id           String     @id @default(cuid())
+  medSpaId     String
+  medicationId String
+  pharmacyId   String
+  quantity     Int
+  unitCost     Float      // what the med spa actually paid per unit
+  createdAt    DateTime   @default(now())
+  medSpa       MedSpa     @relation(fields: [medSpaId], references: [id])
+  medication   Medication @relation(fields: [medicationId], references: [id])
+  pharmacy     Pharmacy   @relation(fields: [pharmacyId], references: [id])
+}
+
+// Actual pharmacy fill record for reconciliation
+model FillRecord {
+  id            String   @id @default(cuid())
+  referenceCode String
+  medicationId  String
   pharmacyId    String
-  method        String              @default("lifefile_csv")
-  fileName      String
-  orderCount    Int
-  createdAt     DateTime            @default(now())
-  pharmacy      Pharmacy            @relation(fields: [pharmacyId], references: [id])
-  transmissions OrderTransmission[]
+  brandId       String
+  quantity      Int
+  actualRate    Float
+  expectedRate  Float
+  variance      Float    // actualRate - expectedRate
+  status        String   @default("missing") // match | mismatch | missing
+  fillDate      DateTime
+  resolvedAt    DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  medication    Medication @relation(fields: [medicationId], references: [id])
+  pharmacy      Pharmacy   @relation(fields: [pharmacyId], references: [id])
+  brand         Brand      @relation(fields: [brandId], references: [id])
 }
 
-model RefillRequest {
-  id                String    @id @default(cuid())
-  orderId           String    // the original prescription/order being refilled
-  brandId           String?
-  patientId         String
-  pharmacyId        String
-  medicationName    String
-  quantity          Int?
-  notes             String?
-
-  status            String    @default("pending_validation")
-  source            String    @default("api") // brand_portal | api | internal_ops
-  idempotencyKey    String?   @unique
-
-  requestedByUserId String?
-  requestedByName   String?
-  requestedByEmail  String?
-
-  rejectionCode     String?
-  rejectionReason   String?
-
-  // Pharmacy fill data
-  pharmacyOrderId   String?
-  quantityDispensed Int?
-  pharmacyCostCents Int?
-  sellPriceCents    Int?
-
-  createdAt         DateTime  @default(now())
-  validatedAt       DateTime?
-  sentToPharmacyAt  DateTime?
-  filledAt          DateTime?
-  cancelledAt       DateTime?
-
-  order             Order     @relation(fields: [orderId], references: [id])
-  brand             Brand?    @relation(fields: [brandId], references: [id])
-  patient           Patient   @relation(fields: [patientId], references: [id])
-  pharmacy          Pharmacy  @relation(fields: [pharmacyId], references: [id])
+// Contract-level audit log for pharmacy pricing changes
+model ContractAuditLog {
+  id                 String   @id @default(cuid())
+  pharmacyId         String
+  actionType         String   // created | updated | verified | deleted
+  changedFields      String?  // JSON summary of changes
+  performedBy        String?  // user identifier
+  notes              String?
+  performedAt        DateTime @default(now())
+  pharmacy           Pharmacy @relation(fields: [pharmacyId], references: [id])
 }

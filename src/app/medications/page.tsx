@@ -3,7 +3,6 @@ import { getMedications, getNetworkPharmacies } from "@/lib/actions";
 import { formatCurrency, getPricingUnit } from "@/lib/pricing";
 import { NetworkFilters } from "@/components/network-filters";
 import { MedicationActions } from "@/components/network-actions";
-import { MedicationsTabs } from "@/components/medications-tabs";
 
 export const dynamic = "force-dynamic";
 
@@ -39,8 +38,6 @@ export default async function MedicationsPage({ searchParams }: Props) {
           <MedicationActions />
         </div>
 
-        <MedicationsTabs />
-
         <NetworkFilters currentSearch={search} currentPharmacy={pharmacyFilter} pharmacies={pharmacies} />
       </div>
 
@@ -58,17 +55,17 @@ export default async function MedicationsPage({ searchParams }: Props) {
           <div className="shrink-0 flex items-center text-[11px] font-medium text-gray-400 uppercase tracking-wider border-b border-gray-200 bg-gray-50">
             <div className="px-4 py-2.5 flex-[2]">Medication</div>
             <div className="px-4 py-2.5 flex-[0.6] text-center">Pharmacies</div>
-            <div className="px-4 py-2.5 flex-[0.8] text-right">{selectedPharmacy ? "Cost" : "Lowest Cost"}</div>
-            <div className="px-4 py-2.5 flex-[0.7] text-right">Sell Price</div>
-            <div className="px-4 py-2.5 flex-[0.7] text-right">Margin</div>
-            <div className="px-4 py-2.5 flex-[0.8] text-center">Pricing Health</div>
+            <div className="px-4 py-2.5 flex-[0.8] text-right">{selectedPharmacy ? "Your Cost" : "Lowest Cost"}</div>
+            <div className="px-4 py-2.5 flex-[0.7] text-right">Client Price</div>
+            <div className="px-4 py-2.5 flex-[0.7] text-right">Your Profit</div>
+            <div className="px-4 py-2.5 flex-[0.8] text-center">Status</div>
           </div>
 
           {/* Scrollable rows */}
           <div className="flex-1 overflow-y-auto min-h-0">
             {medications.map((med, idx) => {
               const issues = med.staleCount + med.agingCount + med.missingCount;
-              const noSellPrice = med.sellPrice == null;
+              const noSellPrice = med.programPrice == null;
               return (
                 <Link
                   key={med.id}
@@ -81,7 +78,7 @@ export default async function MedicationsPage({ searchParams }: Props) {
                     {med.lowestPrice !== null ? <>{formatCurrency(med.lowestPrice)} <span className="text-[10px] font-normal text-gray-400">/ {getPricingUnit(med.form)}</span></> : <span className="text-gray-300">—</span>}
                   </div>
                   <div className="px-4 py-2.5 flex-[0.7] text-right text-[13px] text-gray-700">
-                    {med.sellPrice != null ? <>{formatCurrency(med.sellPrice)} <span className="text-[10px] font-normal text-gray-400">/ {getPricingUnit(med.form)}</span></> : <span className="text-gray-300">—</span>}
+                    {med.programPrice != null ? <>{formatCurrency(med.programPrice)} <span className="text-[10px] font-normal text-gray-400">/ {getPricingUnit(med.form)}</span></> : <span className="text-gray-300">—</span>}
                   </div>
                   <div className={`px-4 py-2.5 flex-[0.7] text-right text-[13px] font-medium ${med.bestMargin != null && med.bestMargin >= 0 ? "text-green-700" : med.bestMargin != null ? "text-red-600" : ""}`}>
                     {med.bestMargin != null ? formatCurrency(med.bestMargin) : <span className="text-gray-300">—</span>}
@@ -91,7 +88,7 @@ export default async function MedicationsPage({ searchParams }: Props) {
                       <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-green-100 text-green-700">OK</span>
                     ) : (
                       <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded bg-red-50 text-red-600 border border-red-200">
-                        {noSellPrice && <span>No sell price</span>}
+                        {noSellPrice && <span>No client price</span>}
                         {!noSellPrice && med.missingCount > 0 && <span>{med.missingCount} missing</span>}
                         {!noSellPrice && med.missingCount === 0 && (med.staleCount + med.agingCount) > 0 && <span>{med.staleCount + med.agingCount} stale</span>}
                       </span>

@@ -68,7 +68,7 @@ export function AddPharmacyDrawer({ open, onClose }: Props) {
     if (serviceStates.length === 0) { setError("Select at least one service state"); return; }
     setSaving(true); setError("");
     try {
-      await createNetworkPharmacy({ name, street, city, state, zip, serviceStates, email, phone, notes });
+      await createNetworkPharmacy({ name, street, city, state, zip, serviceStates: JSON.stringify(serviceStates), email, phone, notes });
       setSuccess(true);
       router.refresh();
       setTimeout(() => { onClose(); setSuccess(false); }, 800);

@@ -8,9 +8,9 @@ interface PharmacyRow {
   name: string;
   contactName: string | null;
   serviceStates: string | null;
-  archivedAt: string | null;
+  archivedAt: Date | null;
   activePriceCount: number;
-  orderCount: number;
+  programCount: number;
 }
 
 interface Props {
@@ -52,15 +52,15 @@ export function PharmacyList({ pharmacies }: Props) {
 
       {displayed.length === 0 ? (
         <div className="flex-1 flex items-center justify-center bg-white border border-gray-200 rounded-lg">
-          <p className="text-gray-400 text-sm">No pharmacies in the network yet.</p>
+          <p className="text-gray-400 text-sm">No pharmacies yet.</p>
         </div>
       ) : (
         <div className="flex-1 min-h-0 flex flex-col bg-white border border-gray-200 rounded-lg overflow-hidden">
           <div className="shrink-0 flex items-center text-[11px] font-medium text-gray-400 uppercase tracking-wider border-b border-gray-200 bg-gray-50">
             <div className="px-4 py-2.5 flex-[2]">Pharmacy</div>
-            <div className="px-4 py-2.5 flex-[1.2]">Service States</div>
+            <div className="px-4 py-2.5 flex-[0.7]">Location</div>
             <div className="px-4 py-2.5 flex-[0.8] text-center">Active Prices</div>
-            <div className="px-4 py-2.5 flex-[0.7] text-center">Orders</div>
+            <div className="px-4 py-2.5 flex-[0.7] text-center">Programs</div>
             <div className="px-4 py-2.5 flex-[0.7] text-center">Status</div>
           </div>
 
@@ -77,7 +77,7 @@ export function PharmacyList({ pharmacies }: Props) {
                     <span className="text-[13px] font-medium text-gray-900 truncate block">{p.name}</span>
                     {p.contactName && <span className="text-[10px] text-gray-400 block truncate">{p.contactName}</span>}
                   </div>
-                  <div className="px-4 py-2.5 flex-[1.2] text-[12px] text-gray-500 truncate">{formatServiceStates(p.serviceStates)}</div>
+                  <div className="px-4 py-2.5 flex-[0.7] text-[12px] text-gray-500 truncate">{formatServiceStates(p.serviceStates)}</div>
                   <div className="px-4 py-2.5 flex-[0.8] text-center text-[13px]">
                     {p.activePriceCount > 0 ? (
                       <span className="text-indigo-600 font-medium tabular-nums">{p.activePriceCount}</span>
@@ -86,8 +86,8 @@ export function PharmacyList({ pharmacies }: Props) {
                     )}
                   </div>
                   <div className="px-4 py-2.5 flex-[0.7] text-center text-[13px]">
-                    {p.orderCount > 0 ? (
-                      <span className="text-indigo-600 font-medium tabular-nums">{p.orderCount}</span>
+                    {p.programCount > 0 ? (
+                      <span className="text-indigo-600 font-medium tabular-nums">{p.programCount}</span>
                     ) : (
                       <span className="text-gray-300">0</span>
                     )}

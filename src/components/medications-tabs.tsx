@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 
 const tabs = [
   { label: "Medications", href: "/medications" },
-  { label: "Pricing Audit", href: "/medications/audit" },
+  { label: "Treatments", href: "/medications/audit" },
 ];
 
 export function MedicationsTabs() {

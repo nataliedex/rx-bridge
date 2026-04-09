@@ -40,3 +40,27 @@ export function formatCurrency(amount: number): string {
 export function formatPercent(pct: number): string {
   return `${Math.round(pct * 100)}%`;
 }
+
+// Pricing strategy calculation helpers (shared between server and client)
+
+// Markup: sell price = cost × (1 + markup%)
+export function calcSellPriceFromMarkup(pharmacyCost: number, markupPct: number): number {
+  return Math.round(pharmacyCost * (1 + markupPct / 100) * 100) / 100;
+}
+
+// Markup derived from sell price and cost
+export function calcMarkupFromSellPrice(sellPrice: number, pharmacyCost: number): number {
+  if (pharmacyCost <= 0) return 0;
+  return Math.round(((sellPrice - pharmacyCost) / pharmacyCost) * 100);
+}
+
+// Margin derived (informational only): (sell - cost) / sell
+export function calcMarginPct(sellPrice: number, pharmacyCost: number): number {
+  if (sellPrice <= 0) return 0;
+  return Math.round(((sellPrice - pharmacyCost) / sellPrice) * 100);
+}
+
+// Legacy alias — keep for any remaining refs during transition
+export function calcSellPriceFromMargin(pharmacyCost: number, marginPct: number): number {
+  return calcSellPriceFromMarkup(pharmacyCost, marginPct);
+}

@@ -3,548 +3,338 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
 async function main() {
+  // App config — default pricing strategy
+  await prisma.appConfig.create({
+    data: {
+      key: "pricing_strategy",
+      value: JSON.stringify({
+        mode: "markup_based",
+        defaultMarkupPct: 25,
+        allowMedicationOverrides: true,
+        allowMedSpaOverrides: true,
+      }),
+    },
+  });
+
   // Brands
   const brand1 = await prisma.brand.create({
-    data: {
-      name: "Vitality Wellness Co.", active: true, notes: "D2C hormone therapy brand — high volume",
-      contactName: "Amanda Chen", email: "amanda@vitalitywellness.com", phone: "5125559001", website: "https://vitalitywellness.com",
-    },
+    data: { name: "Vitality Wellness Co.", active: true, notes: "Weight management + hormone therapy brand — GLP-1 and TRT focus", contactName: "Amanda Chen", email: "amanda@vitalitywellness.com", phone: "5125559001", website: "https://vitalitywellness.com" },
   });
   const brand2 = await prisma.brand.create({
-    data: {
-      name: "NovaDerm Health", active: true, notes: "Dermatology-focused brand — topical compounding",
-      contactName: "Marcus Rivera", email: "marcus@novaderm.com", phone: "3105559002", website: "https://novadermhealth.com",
-    },
+    data: { name: "NovaDerm Health", active: true, notes: "Aesthetics + skin health brand — med spa channel", contactName: "Marcus Rivera", email: "marcus@novaderm.com", phone: "3105559002", website: "https://novadermhealth.com" },
   });
   const brand3 = await prisma.brand.create({
-    data: {
-      name: "PeakLife Rx", active: true, notes: "Functional medicine brand — LDN, integrative protocols",
-      contactName: "Dr. Sarah Kim", email: "sarah@peakliferx.com", phone: "6465559003",
-    },
+    data: { name: "PeakLife Rx", active: true, notes: "Peptide therapy + wellness optimization brand", contactName: "Dr. Sarah Kim", email: "sarah@peakliferx.com", phone: "6465559003" },
   });
 
   // Pharmacies
   const pharmacy1 = await prisma.pharmacy.create({
-    data: {
-      name: "CompoundRx Pharmacy", contactName: "Sarah Mitchell",
-      phone: "5125551234", fax: "5125551235", email: "orders@compoundrx.example.com",
-      formatPreference: "standard",
-      requirementsJson: JSON.stringify({
-        requiredFields: ["patient.dob", "prescriber.npi", "medication.name", "medication.directions", "medication.quantity"],
-        recommendedFields: ["patient.phone", "medication.strength", "medication.dosageForm", "medication.daysSupply"],
-      }),
-    },
+    data: { name: "CompoundRx Pharmacy", contactName: "Sarah Mitchell", phone: "5125551234", fax: "5125551235", email: "orders@compoundrx.example.com" },
   });
   const pharmacy2 = await prisma.pharmacy.create({
-    data: {
-      name: "PrecisionMed Compounding", contactName: "James Carter",
-      phone: "2125559876", fax: "2125559877", email: "intake@precisionmed.example.com",
-      formatPreference: "standard",
-      requirementsJson: JSON.stringify({
-        requiredFields: ["patient.dob", "prescriber.npi", "medication.name", "medication.directions", "medication.quantity", "medication.strength", "medication.dosageForm"],
-        recommendedFields: ["patient.phone", "patient.email", "medication.daysSupply", "prescriber.fax"],
-      }),
-    },
+    data: { name: "PrecisionMed Compounding", contactName: "James Carter", phone: "2125559876", fax: "2125559877", email: "intake@precisionmed.example.com" },
   });
   const pharmacy3 = await prisma.pharmacy.create({
-    data: {
-      name: "BioFormula Pharmacy", contactName: "Linda Tran",
-      phone: "3105557890", fax: "3105557891", email: "rx@bioformula.example.com",
-      formatPreference: "standard",
-      requirementsJson: JSON.stringify({
-        requiredFields: ["patient.dob", "prescriber.npi", "medication.name", "medication.directions", "medication.quantity"],
-        recommendedFields: ["patient.phone", "medication.strength", "medication.daysSupply"],
-      }),
-    },
+    data: { name: "BioFormula Pharmacy", contactName: "Linda Tran", phone: "3105557890", fax: "3105557891", email: "rx@bioformula.example.com" },
   });
 
-  // Brand-Pharmacy routing configs
-  await prisma.brandPharmacyConfig.create({ data: { brandId: brand1.id, pharmacyId: pharmacy1.id, isDefault: true, routingPriority: 0 } });
-  await prisma.brandPharmacyConfig.create({ data: { brandId: brand1.id, pharmacyId: pharmacy3.id, isDefault: false, routingPriority: 1 } });
-  await prisma.brandPharmacyConfig.create({ data: { brandId: brand2.id, pharmacyId: pharmacy2.id, isDefault: true, routingPriority: 0 } });
-  await prisma.brandPharmacyConfig.create({ data: { brandId: brand3.id, pharmacyId: pharmacy3.id, isDefault: true, routingPriority: 0 } });
-  await prisma.brandPharmacyConfig.create({ data: { brandId: brand3.id, pharmacyId: pharmacy1.id, isDefault: false, routingPriority: 1 } });
-
-  // Prescribers
-  const prescriber1 = await prisma.prescriber.create({ data: { name: "Dr. Emily Richardson", npi: "1234567890", clinicName: "Austin Integrative Health", phone: "5125554321", fax: "5125554322", email: "erichardson@aih.example.com", address: "200 West Ave, Suite 300, Austin, TX 78701" } });
-  const prescriber2 = await prisma.prescriber.create({ data: { name: "Dr. Marcus Chen", npi: "9876543210", clinicName: "Manhattan Wellness Center", phone: "2125551111", fax: "2125551112", email: "mchen@mwc.example.com", address: "450 Park Ave, New York, NY 10022" } });
-  const prescriber3 = await prisma.prescriber.create({ data: { name: "Dr. Priya Patel", npi: "5678901234", clinicName: "Pacific Coast Medical Group", phone: "3105553333", fax: "3105553334", email: "ppatel@pcmg.example.com", address: "1200 Ocean Blvd, Santa Monica, CA 90401" } });
-
-  // Patients
-  const patient1 = await prisma.patient.create({ data: { firstName: "John", lastName: "Martinez", dob: "1985-03-15", phone: "5125557001", email: "john.martinez@example.com", address1: "123 Main Street", city: "Austin", state: "TX", zip: "78701" } });
-  const patient2 = await prisma.patient.create({ data: { firstName: "Sarah", lastName: "Johnson", dob: "1992-07-22", phone: "2125558001", email: "sjohnson@example.com", address1: "456 Broadway", address2: "Apt 12B", city: "New York", state: "NY", zip: "10013" } });
-  const patient3 = await prisma.patient.create({ data: { firstName: "Robert", lastName: "Kim", dob: "1978-11-08", phone: "3105559001", email: "rkim@example.com", address1: "789 Sunset Blvd", city: "Los Angeles", state: "CA", zip: "90028" } });
-  const patient4 = await prisma.patient.create({ data: { firstName: "Lisa", lastName: "Thompson", dob: "1990-01-30", phone: "5125557002", address1: "321 Oak Drive", city: "Round Rock", state: "TX", zip: "78664" } });
-
-  // Medications (network catalog) — sellPrice is the Rx-Bridge negotiated rate (same for all brands)
+  // Medications — med spa focused
   const medData = [
-    { name: "Testosterone Cypionate", form: "Injectable Solution", strength: "200mg/mL" },
-    { name: "Progesterone", form: "Capsule", strength: "100mg" },
-    { name: "Progesterone Troche", form: "Troche", strength: "200mg" },
-    { name: "Low Dose Naltrexone", form: "Capsule", strength: "4.5mg" },
-    { name: "Vitamin D3", form: "Capsule", strength: "50000 IU" },
-    { name: "Estradiol/Estriol Cream", form: "Topical Cream", strength: "80/20 ratio" },
-    { name: "Thyroid T3/T4 Combination", form: "Capsule", strength: "5mcg/65mcg" },
-    { name: "DHEA", form: "Capsule", strength: "25mg" },
-    { name: "Sermorelin", form: "Injectable Solution", strength: "9mg" },
-    { name: "BPC-157", form: "Capsule", strength: "500mcg" },
-    { name: "Glutathione", form: "Injectable Solution", strength: "200mg/mL" },
-    { name: "Oxytocin Nasal Spray", form: "Nasal Spray", strength: "40IU/mL" },
-    { name: "NAD+ Nasal Spray", form: "Nasal Spray", strength: "100mg/mL" },
-    { name: "Sildenafil Troche", form: "Troche", strength: "50mg" },
-    { name: "Tadalafil Capsule", form: "Capsule", strength: "5mg" },
-    { name: "Ipamorelin/CJC-1295", form: "Injectable Solution", strength: "9mg/9mg" },
-    { name: "Metformin Extended Release", form: "Capsule", strength: "500mg" },
-    { name: "Methylcobalamin B12", form: "Sublingual Tablet", strength: "5000mcg" },
-    { name: "Tretinoin Cream", form: "Topical Cream", strength: "0.05%" },
-    { name: "DHEA Cream", form: "Topical Cream", strength: "25mg/g" },
-    { name: "Pregnenolone", form: "Capsule", strength: "50mg" },
     { name: "Semaglutide", form: "Injectable Solution", strength: "5mg/2mL" },
     { name: "Tirzepatide", form: "Injectable Solution", strength: "10mg/2mL" },
     { name: "Semaglutide Sublingual", form: "Sublingual Tablet", strength: "2mg" },
+    { name: "Tretinoin Cream", form: "Topical Cream", strength: "0.05%" },
+    { name: "Glutathione", form: "Injectable Solution", strength: "200mg/mL" },
+    { name: "NAD+ Nasal Spray", form: "Nasal Spray", strength: "100mg/mL" },
+    { name: "Testosterone Cypionate", form: "Injectable Solution", strength: "200mg/mL" },
+    { name: "Sermorelin", form: "Injectable Solution", strength: "9mg" },
   ];
 
-  // Per-unit pharmacy costs (base, at cheapest pharmacy).
-  // Pricing basis by form:
-  //   Capsule/Troche/Sublingual Tablet → per unit
-  //   Injectable Solution → per vial (1 vial = 30-day supply)
-  //   Topical Cream → per tube/jar (30g = 30-day supply)
-  //   Nasal Spray → per bottle (1 bottle = 30-day supply)
   const basePrices: number[] = [
-    85.00,   // Testosterone Cypionate — per vial (10mL)
-    1.10,    // Progesterone — per cap
-    1.40,    // Progesterone Troche — per troche
-    0.90,    // Low Dose Naltrexone — per cap
-    0.55,    // Vitamin D3 — per cap
-    52.00,   // Estradiol/Estriol Cream — per tube (30g)
-    1.80,    // Thyroid T3/T4 — per cap
-    0.65,    // DHEA — per cap
-    175.00,  // Sermorelin — per vial
-    2.80,    // BPC-157 — per cap
-    72.00,   // Glutathione — per vial (10mL)
-    58.00,   // Oxytocin Nasal Spray — per bottle
-    95.00,   // NAD+ Nasal Spray — per bottle
-    3.50,    // Sildenafil Troche — per troche
-    1.80,    // Tadalafil Capsule — per cap
-    195.00,  // Ipamorelin/CJC-1295 — per vial
-    0.35,    // Metformin ER — per cap
-    0.40,    // Methylcobalamin B12 — per tab
-    35.00,   // Tretinoin Cream — per tube (30g)
-    28.00,   // DHEA Cream — per tube (30g)
-    0.70,    // Pregnenolone — per cap
-    165.00,  // Semaglutide — per vial (2mL, 4-week supply)
-    195.00,  // Tirzepatide — per vial (2mL, 4-week supply)
-    4.50,    // Semaglutide Sublingual — per tab (daily)
+    165.00,  // Semaglutide
+    195.00,  // Tirzepatide
+    4.50,    // Semaglutide Sublingual
+    35.00,   // Tretinoin Cream
+    72.00,   // Glutathione
+    95.00,   // NAD+ Nasal Spray
+    85.00,   // Testosterone Cypionate
+    175.00,  // Sermorelin
   ];
 
-  // Sell prices (Rx-Bridge negotiated GPO rate, same per-unit basis as above).
-  // Margins range 28–39% to provide realistic variety for analytics demos.
   const sellPrices: number[] = [
-    125.00,  // Testosterone Cypionate (32% margin)
-    1.60,    // Progesterone (31%)
-    2.15,    // Progesterone Troche (35%)
-    1.45,    // Low Dose Naltrexone (38%)
-    0.80,    // Vitamin D3 (31%)
-    78.00,   // Estradiol/Estriol Cream (33%)
-    2.50,    // Thyroid T3/T4 (28%)
-    0.95,    // DHEA (32%)
-    275.00,  // Sermorelin (36%)
-    4.25,    // BPC-157 (34%)
-    105.00,  // Glutathione (31%)
-    92.00,   // Oxytocin Nasal Spray (37%)
-    150.00,  // NAD+ Nasal Spray (37%)
-    5.75,    // Sildenafil Troche (39%)
-    2.85,    // Tadalafil Capsule (37%)
-    310.00,  // Ipamorelin/CJC-1295 (37%)
-    0.50,    // Metformin ER (30%)
-    0.60,    // Methylcobalamin B12 (33%)
-    55.00,   // Tretinoin Cream (36%)
-    42.00,   // DHEA Cream (33%)
-    1.05,    // Pregnenolone (33%)
-    299.00,  // Semaglutide (45% margin — high demand, premium positioning)
-    379.00,  // Tirzepatide (49% margin — newest GLP-1, highest demand)
-    8.50,    // Semaglutide Sublingual (47% margin — convenience premium)
+    299.00,  // Semaglutide
+    379.00,  // Tirzepatide
+    8.50,    // Semaglutide Sublingual
+    55.00,   // Tretinoin Cream
+    105.00,  // Glutathione
+    150.00,  // NAD+ Nasal Spray
+    125.00,  // Testosterone Cypionate
+    275.00,  // Sermorelin
   ];
 
-  // Create medications with explicit sell prices
   const meds = await Promise.all(
-    medData.map((d, i) =>
-      prisma.medication.create({
-        data: { ...d, sellPrice: sellPrices[i] },
-      })
-    )
+    medData.map((d, i) => prisma.medication.create({ data: { ...d, sellPrice: sellPrices[i] } }))
   );
 
-  // Medication pricing history — date-stamped entries
-  const pharmacies = [pharmacy1, pharmacy2, pharmacy3];
-  const threeMonthsAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
-  const twoMonthsAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
-  const sixWeeksAgo = new Date(Date.now() - 42 * 24 * 60 * 60 * 1000);
-  const oneMonthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
-  const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  // Program pricing — global Rx-Bridge price per medication
+  const now = new Date();
+  const oneYearFromNow = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000);
+  for (let i = 0; i < meds.length; i++) {
+    await prisma.programPricing.create({
+      data: {
+        medicationId: meds[i].id,
+        price: sellPrices[i],
+        effectiveFrom: new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000), // 60 days ago
+        effectiveThrough: oneYearFromNow,
+        status: "active",
+        notes: "Initial program pricing",
+      },
+    });
+  }
 
-  // Skip a small number of medication-pharmacy combos to create "missing" rows in the audit.
-  // Target: ~5% missing for demo realism (4 out of 72 = 5.6%).
-  // Meds 19-20 (DHEA Cream, Pregnenolone): only at pharmacy1 — missing at pharmacy2+3
+  // Medication pricing per pharmacy
+  const pharmacies = [pharmacy1, pharmacy2, pharmacy3];
+  const oneMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+  const sixWeeksAgo = new Date(now.getTime() - 42 * 24 * 60 * 60 * 1000);
+  const threeMonthsAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+
   for (let i = 0; i < meds.length; i++) {
     for (let p = 0; p < pharmacies.length; p++) {
-      if (i >= 19 && i <= 20 && p >= 1) continue;  // DHEA Cream + Pregnenolone only at CompoundRx
-
       const multiplier = [1.0, 1.08, 1.15][p];
-      const currentPrice = Math.round(basePrices[i] * multiplier * 100) / 100;
+      const price = Math.round(basePrices[i] * multiplier * 100) / 100;
 
-      // For the first 5 medications, create a historical price entry that was superseded
-      if (i < 5) {
-        const oldPrice = Math.round(currentPrice * 1.12 * 100) / 100; // 12% higher before GPO negotiation
-        await prisma.medicationPriceEntry.create({
-          data: {
-            medicationId: meds[i].id, pharmacyId: pharmacies[p].id,
-            price: oldPrice,
-            effectiveDate: threeMonthsAgo,
-            endDate: oneMonthAgo,
-            notes: "Pre-GPO rate",
-          },
-        });
-      }
-
-      // Current active price — vary verifiedAt for audit demo
-      // First 5 meds (GPO negotiated): verified recently (fresh)
-      // Meds 6-10: verified 6 weeks ago (aging)
-      // Meds 11-15: verified 3 months ago (stale)
-      // Meds 16+: never verified (stale)
-      const verifiedAt = i < 5 ? (p === 0 ? oneWeekAgo : twoWeeksAgo)
-        : i < 10 ? sixWeeksAgo
-        : i < 15 ? threeMonthsAgo
-        : null;
+      // First 4 meds (GLP-1s + Tretinoin) verified recently; rest aging/stale
+      const verifiedAt = i < 4 ? twoWeeksAgo : i < 6 ? sixWeeksAgo : null;
 
       await prisma.medicationPriceEntry.create({
         data: {
           medicationId: meds[i].id, pharmacyId: pharmacies[p].id,
-          price: currentPrice,
-          effectiveDate: i < 5 ? oneMonthAgo : threeMonthsAgo,
-          notes: i < 5 ? "GPO negotiated rate" : undefined,
-          verifiedAt,
-          verificationSource: verifiedAt ? (i < 5 ? "contract_import" : "pharmacy_confirmed") : undefined,
+          price, effectiveDate: i < 4 ? oneMonthAgo : threeMonthsAgo,
+          verifiedAt, verificationSource: verifiedAt ? (i < 4 ? "contract_import" : "pharmacy_confirmed") : undefined,
         },
       });
     }
   }
 
-  // Orders
-  const order1 = await prisma.order.create({ data: { brandId: brand1.id, patientId: patient1.id, prescriberId: prescriber1.id, pharmacyId: pharmacy1.id, medicationName: "Testosterone Cypionate", strength: "200mg/mL", dosageForm: "Injectable Solution", route: "Intramuscular", directions: "Inject 0.5mL (100mg) intramuscularly once weekly", quantity: 1, refills: 4, daysSupply: 70, icd10: "E29.1", orderSource: "manual", priority: "normal", status: "submitted", sendReadiness: "ready" } });
-  const order2 = await prisma.order.create({ data: { brandId: brand2.id, patientId: patient2.id, prescriberId: prescriber2.id, pharmacyId: pharmacy2.id, medicationName: "Progesterone", strength: "100mg", dosageForm: "Capsule", route: "Oral", directions: "Take 1 capsule at bedtime", quantity: 30, refills: 5, daysSupply: 30, icd10: "N91.1", orderSource: "api", priority: "normal", status: "queued", sendReadiness: "ready" } });
-  const order3 = await prisma.order.create({ data: { brandId: brand3.id, patientId: patient3.id, prescriberId: prescriber3.id, pharmacyId: pharmacy3.id, medicationName: "Low Dose Naltrexone", strength: "4.5mg", dosageForm: "Capsule", route: "Oral", directions: "Take 1 capsule daily at bedtime", quantity: 30, refills: 3, daysSupply: 30, rxNotes: "Start at 1.5mg for first week, then increase to 4.5mg", orderSource: "ehr", priority: "normal", status: "sent_to_pharmacy", sendReadiness: "ready" } });
-  const order4 = await prisma.order.create({ data: { brandId: brand1.id, patientId: patient4.id, prescriberId: prescriber1.id, pharmacyId: pharmacy1.id, medicationName: "Vitamin D3", strength: "50000 IU", dosageForm: "Capsule", route: "Oral", directions: "Take 1 capsule weekly", quantity: 12, refills: 1, daysSupply: 84, orderSource: "manual", priority: "low", status: "draft", sendReadiness: "ready" } });
-  const order5 = await prisma.order.create({ data: { brandId: brand2.id, patientId: patient2.id, prescriberId: prescriber2.id, pharmacyId: pharmacy2.id, medicationName: "Estradiol/Estriol Cream", strength: "80/20 ratio, 0.5mg/g", dosageForm: "Topical Cream", route: "Topical", directions: "Apply 1g to inner wrist daily", quantity: 1, daysSupply: 30, orderSource: "api", priority: "high", status: "needs_clarification", sendReadiness: "needs_review", internalNotes: "Prescriber needs to confirm concentration ratio" } });
-  const order6 = await prisma.order.create({ data: { brandId: brand1.id, patientId: patient1.id, prescriberId: prescriber1.id, pharmacyId: pharmacy3.id, medicationName: "Thyroid T3/T4 Combination", strength: "5mcg T3 / 65mcg T4", dosageForm: "Capsule", route: "Oral", directions: "Take 1 capsule every morning on empty stomach", quantity: 90, refills: 3, daysSupply: 90, icd10: "E03.9", orderSource: "manual", priority: "normal", status: "completed", sendReadiness: "ready", completedAt: new Date(Date.now() - 55 * 24 * 60 * 60 * 1000) } });
-  const order7 = await prisma.order.create({ data: { brandId: brand3.id, patientId: patient3.id, prescriberId: prescriber3.id, pharmacyId: pharmacy1.id, medicationName: "DHEA Cream", strength: "25mg/g", dosageForm: "Topical Cream", route: "Topical", orderSource: "ehr", priority: "normal", status: "submitted", sendReadiness: "missing_data", internalNotes: "Incomplete Rx from EHR — waiting on prescriber to send full sig" } });
+  // Programs — pricing contracts between brands and pharmacies
+  const brands = [brand1, brand2, brand3];
+  const daysAgo = (d: number) => new Date(now.getTime() - d * 24 * 60 * 60 * 1000);
 
-  // Additional patients
-  const patient5 = await prisma.patient.create({ data: { firstName: "Michael", lastName: "Davis", dob: "1975-06-12", phone: "4155551001", email: "mdavis@example.com", address1: "500 Market St", city: "San Francisco", state: "CA", zip: "94105" } });
-  const patient6 = await prisma.patient.create({ data: { firstName: "Amanda", lastName: "Garcia", dob: "1988-09-04", phone: "7135552001", email: "agarcia@example.com", address1: "1200 Main St", city: "Houston", state: "TX", zip: "77002" } });
-  const patient7 = await prisma.patient.create({ data: { firstName: "David", lastName: "Wilson", dob: "1965-02-28", phone: "3035553001", email: "dwilson@example.com", address1: "800 Colfax Ave", city: "Denver", state: "CO", zip: "80204" } });
-  const patient8 = await prisma.patient.create({ data: { firstName: "Jennifer", lastName: "Lee", dob: "1995-11-15", phone: "6025554001", email: "jlee@example.com", address1: "2200 Camelback Rd", city: "Phoenix", state: "AZ", zip: "85016" } });
-  const patient9 = await prisma.patient.create({ data: { firstName: "Christopher", lastName: "Brown", dob: "1982-04-20", phone: "9715555001", email: "cbrown@example.com", address1: "900 NW 23rd Ave", city: "Portland", state: "OR", zip: "97210" } });
-  const patient10 = await prisma.patient.create({ data: { firstName: "Emily", lastName: "Taylor", dob: "1993-08-07", phone: "6155556001", email: "etaylor@example.com", address1: "400 Broadway", city: "Nashville", state: "TN", zip: "37203" } });
-  const patient11 = await prisma.patient.create({ data: { firstName: "James", lastName: "Anderson", dob: "1970-12-01", phone: "3125557001", email: "janderson@example.com", address1: "233 S Wacker Dr", city: "Chicago", state: "IL", zip: "60606" } });
-  const patient12 = await prisma.patient.create({ data: { firstName: "Maria", lastName: "Rodriguez", dob: "1987-03-22", phone: "3055558001", email: "mrodriguez@example.com", address1: "1000 Brickell Ave", city: "Miami", state: "FL", zip: "33131" } });
-
-  // 15 additional orders across various states
-  const order8 = await prisma.order.create({ data: { brandId: brand1.id, patientId: patient5.id, prescriberId: prescriber1.id, pharmacyId: pharmacy1.id, medicationName: "Testosterone Cypionate", strength: "200mg/mL", dosageForm: "Injectable Solution", route: "Intramuscular", directions: "Inject 0.5mL weekly", quantity: 1, refills: 4, daysSupply: 70, icd10: "E29.1", orderSource: "api", priority: "normal", status: "approved", sendReadiness: "ready" } });
-  const order9 = await prisma.order.create({ data: { brandId: brand2.id, patientId: patient6.id, prescriberId: prescriber2.id, pharmacyId: pharmacy2.id, medicationName: "Progesterone Troche", strength: "200mg", dosageForm: "Troche", route: "Sublingual", directions: "Dissolve 1 troche under tongue at bedtime", quantity: 30, refills: 3, daysSupply: 30, orderSource: "manual", priority: "normal", status: "draft", sendReadiness: "ready" } });
-  const order10 = await prisma.order.create({ data: { brandId: brand3.id, patientId: patient7.id, prescriberId: prescriber3.id, pharmacyId: pharmacy3.id, medicationName: "Metformin Extended Release", strength: "500mg", dosageForm: "Capsule", route: "Oral", directions: "Take 1 capsule twice daily with meals", quantity: 60, refills: 5, daysSupply: 30, icd10: "E11.9", orderSource: "ehr", priority: "normal", status: "queued", sendReadiness: "ready" } });
-  const order11 = await prisma.order.create({ data: { brandId: brand1.id, patientId: patient8.id, prescriberId: prescriber1.id, pharmacyId: pharmacy1.id, medicationName: "DHEA", strength: "25mg", dosageForm: "Capsule", route: "Oral", directions: "Take 1 capsule daily in the morning", quantity: 30, refills: 2, daysSupply: 30, orderSource: "api", priority: "high", status: "submitted", sendReadiness: "ready" } });
-  const order12 = await prisma.order.create({ data: { brandId: brand2.id, patientId: patient9.id, prescriberId: prescriber2.id, pharmacyId: pharmacy2.id, medicationName: "Pregnenolone", strength: "50mg", dosageForm: "Capsule", route: "Oral", quantity: 30, refills: 2, daysSupply: 30, orderSource: "manual", priority: "normal", status: "submitted", sendReadiness: "missing_data" } });
-  const order13 = await prisma.order.create({ data: { brandId: brand3.id, patientId: patient10.id, prescriberId: prescriber3.id, pharmacyId: pharmacy3.id, medicationName: "Oxytocin Nasal Spray", strength: "40IU/mL", dosageForm: "Nasal Spray", route: "Intranasal", directions: "1 spray each nostril twice daily", quantity: 1, refills: 1, daysSupply: 30, orderSource: "ehr", priority: "urgent", status: "approved", sendReadiness: "ready" } });
-  const order14 = await prisma.order.create({ data: { brandId: brand1.id, patientId: patient11.id, prescriberId: prescriber1.id, pharmacyId: pharmacy3.id, medicationName: "Sermorelin", strength: "9mg", dosageForm: "Injectable Solution", route: "Subcutaneous", directions: "Inject 300mcg subcutaneously at bedtime", quantity: 1, refills: 2, daysSupply: 30, icd10: "E23.0", orderSource: "api", priority: "normal", status: "queued", sendReadiness: "ready" } });
-  const order15 = await prisma.order.create({ data: { brandId: brand2.id, patientId: patient12.id, prescriberId: prescriber2.id, pharmacyId: pharmacy1.id, medicationName: "BPC-157", strength: "500mcg", dosageForm: "Capsule", route: "Oral", directions: "Take 1 capsule twice daily on empty stomach", quantity: 60, refills: 1, daysSupply: 30, orderSource: "manual", priority: "normal", status: "approved", sendReadiness: "ready" } });
-  const order16 = await prisma.order.create({ data: { brandId: brand3.id, patientId: patient5.id, prescriberId: prescriber3.id, pharmacyId: pharmacy2.id, medicationName: "Glutathione", strength: "200mg/mL", dosageForm: "Injectable Solution", route: "Intramuscular", directions: "Inject 1mL intramuscularly twice weekly", quantity: 1, refills: 2, daysSupply: 35, orderSource: "ehr", priority: "normal", status: "sent_to_pharmacy", sendReadiness: "ready" } });
-  const order17 = await prisma.order.create({ data: { brandId: brand1.id, patientId: patient6.id, prescriberId: prescriber1.id, pharmacyId: pharmacy3.id, medicationName: "NAD+ Nasal Spray", strength: "100mg/mL", dosageForm: "Nasal Spray", route: "Intranasal", orderSource: "api", priority: "normal", status: "submitted", sendReadiness: "missing_data" } });
-  const order18 = await prisma.order.create({ data: { brandId: brand2.id, patientId: patient7.id, prescriberId: prescriber2.id, pharmacyId: pharmacy1.id, medicationName: "Methylcobalamin B12", strength: "5000mcg", dosageForm: "Sublingual Tablet", route: "Sublingual", directions: "Dissolve 1 tablet under tongue daily", quantity: 30, refills: 5, daysSupply: 30, orderSource: "manual", priority: "low", status: "draft", sendReadiness: "ready" } });
-  const order19 = await prisma.order.create({ data: { brandId: brand3.id, patientId: patient8.id, prescriberId: prescriber3.id, pharmacyId: pharmacy2.id, medicationName: "Ipamorelin/CJC-1295", strength: "9mg/9mg", dosageForm: "Injectable Solution", route: "Subcutaneous", directions: "Inject 300mcg/300mcg subcutaneously at bedtime", quantity: 1, refills: 2, daysSupply: 30, icd10: "E23.0", orderSource: "ehr", priority: "high", status: "needs_clarification", sendReadiness: "needs_review", internalNotes: "Brand requesting dose confirmation from prescriber" } });
-  const order20 = await prisma.order.create({ data: { brandId: brand1.id, patientId: patient9.id, prescriberId: prescriber1.id, pharmacyId: pharmacy3.id, medicationName: "Tretinoin Cream", strength: "0.05%", dosageForm: "Topical Cream", route: "Topical", directions: "Apply thin layer to face at bedtime", quantity: 1, refills: 3, daysSupply: 30, orderSource: "manual", priority: "normal", status: "completed", sendReadiness: "ready", completedAt: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000) } });
-  const order21 = await prisma.order.create({ data: { brandId: brand2.id, patientId: patient10.id, prescriberId: prescriber2.id, pharmacyId: pharmacy1.id, medicationName: "Sildenafil Troche", strength: "50mg", dosageForm: "Troche", route: "Sublingual", directions: "Dissolve 1 troche under tongue as needed, max 1 per day", quantity: 10, refills: 2, daysSupply: 30, orderSource: "api", priority: "normal", status: "queued", sendReadiness: "ready" } });
-  const order22 = await prisma.order.create({ data: { brandId: brand3.id, patientId: patient11.id, prescriberId: prescriber3.id, pharmacyId: pharmacy2.id, medicationName: "Tadalafil Capsule", strength: "5mg", dosageForm: "Capsule", route: "Oral", directions: "Take 1 capsule daily", quantity: 30, refills: 5, daysSupply: 30, orderSource: "ehr", priority: "normal", status: "approved", sendReadiness: "ready" } });
-  const order23 = await prisma.order.create({ data: { brandId: brand1.id, patientId: patient4.id, prescriberId: prescriber1.id, pharmacyId: pharmacy1.id, medicationName: "Semaglutide", strength: "5mg/2mL", dosageForm: "Injectable Solution", route: "Subcutaneous", directions: "Inject 0.25mg subcutaneously once weekly for 4 weeks, then increase to 0.5mg weekly", quantity: 1, refills: 5, daysSupply: 28, icd10: "E66.01", orderSource: "api", priority: "normal", status: "queued", sendReadiness: "ready" } });
-  const order24 = await prisma.order.create({ data: { brandId: brand2.id, patientId: patient8.id, prescriberId: prescriber2.id, pharmacyId: pharmacy2.id, medicationName: "Tirzepatide", strength: "10mg/2mL", dosageForm: "Injectable Solution", route: "Subcutaneous", directions: "Inject 2.5mg subcutaneously once weekly", quantity: 1, refills: 5, daysSupply: 28, icd10: "E66.01", orderSource: "ehr", priority: "high", status: "sent_to_pharmacy", sendReadiness: "ready" } });
-  const order25 = await prisma.order.create({ data: { brandId: brand3.id, patientId: patient10.id, prescriberId: prescriber3.id, pharmacyId: pharmacy1.id, medicationName: "Semaglutide Sublingual", strength: "2mg", dosageForm: "Sublingual Tablet", route: "Sublingual", directions: "Dissolve 1 tablet under tongue daily in the morning on empty stomach", quantity: 30, refills: 5, daysSupply: 30, icd10: "E11.65", orderSource: "manual", priority: "normal", status: "submitted", sendReadiness: "ready" } });
-
-  // Per-fill retail estimates and GPO discounts.
-  // Retail = what a patient would pay direct (no GPO).
-  // GPO price = retail × (1 - discount) ≈ sellPrice × typical qty.
-  const pricingData: Record<string, { retail: number; discount: number }> = {
-    "Testosterone Cypionate": { retail: 180, discount: 0.31 },           // GPO ~$124 vs sell $125/vial
-    "Progesterone": { retail: 65, discount: 0.26 },                      // GPO ~$48 vs 30 × $1.60
-    "Progesterone Troche": { retail: 85, discount: 0.24 },               // GPO ~$65 vs 30 × $2.15
-    "Low Dose Naltrexone": { retail: 55, discount: 0.21 },               // GPO ~$43 vs 30 × $1.45
-    "Vitamin D3": { retail: 15, discount: 0.36 },                        // GPO ~$10 vs 12 × $0.80
-    "Estradiol/Estriol Cream": { retail: 115, discount: 0.32 },          // GPO ~$78 vs sell $78/tube
-    "Thyroid T3/T4 Combination": { retail: 295, discount: 0.24 },        // GPO ~$224 vs 90 × $2.50
-    "DHEA Cream": { retail: 60, discount: 0.30 },                        // GPO ~$42 vs sell $42/tube
-    "DHEA": { retail: 40, discount: 0.29 },                              // GPO ~$28 vs 30 × $0.95
-    "Pregnenolone": { retail: 45, discount: 0.30 },                      // GPO ~$32 vs 30 × $1.05
-    "Oxytocin Nasal Spray": { retail: 135, discount: 0.32 },             // GPO ~$92 vs sell $92/bottle
-    "Sermorelin": { retail: 395, discount: 0.30 },                       // GPO ~$277 vs sell $275/vial
-    "BPC-157": { retail: 350, discount: 0.27 },                          // GPO ~$256 vs 60 × $4.25
-    "Glutathione": { retail: 155, discount: 0.32 },                      // GPO ~$105 vs sell $105/vial
-    "NAD+ Nasal Spray": { retail: 225, discount: 0.33 },                 // GPO ~$151 vs sell $150/bottle
-    "Methylcobalamin B12": { retail: 28, discount: 0.36 },               // GPO ~$18 vs 30 × $0.60
-    "Ipamorelin/CJC-1295": { retail: 450, discount: 0.31 },              // GPO ~$311 vs sell $310/vial
-    "Tretinoin Cream": { retail: 80, discount: 0.31 },                   // GPO ~$55 vs sell $55/tube
-    "Sildenafil Troche": { retail: 85, discount: 0.32 },                 // GPO ~$58 vs 10 × $5.75
-    "Tadalafil Capsule": { retail: 120, discount: 0.29 },                // GPO ~$85 vs 30 × $2.85
-    "Metformin Extended Release": { retail: 42, discount: 0.29 },         // GPO ~$30 vs 60 × $0.50
-    "Semaglutide": { retail: 550, discount: 0.46 },                       // GPO ~$297 vs sell $299/vial (vs brand Ozempic ~$900+)
-    "Tirzepatide": { retail: 650, discount: 0.42 },                       // GPO ~$377 vs sell $379/vial (vs brand Mounjaro ~$1000+)
-    "Semaglutide Sublingual": { retail: 15, discount: 0.43 },             // GPO ~$8.55 vs sell $8.50/tab (30ct = ~$255/mo)
-  };
-
-  const allOrders = [order1, order2, order3, order4, order5, order6, order7, order8, order9, order10, order11, order12, order13, order14, order15, order16, order17, order18, order19, order20, order21, order22, order23, order24, order25];
-  for (const order of allOrders) {
-    const med = pricingData[order.medicationName];
-    if (med) {
-      const gpoPrice = Math.round(med.retail * (1 - med.discount) * 100) / 100;
-      const pricing = {
-        gpoPrice,
-        retailEstimate: med.retail,
-        savingsAbsolute: Math.round((med.retail - gpoPrice) * 100) / 100,
-        savingsPercent: med.discount,
-      };
-      await prisma.order.update({ where: { id: order.id }, data: { pricingJson: JSON.stringify(pricing) } });
-    }
-  }
-
-  // Issues for new orders
-  await prisma.issue.create({ data: { orderId: order12.id, type: "missing_required_field", severity: "blocking", source: "system", fieldPath: "medication.directions", title: "Directions missing", message: "Required by pharmacy" } });
-  await prisma.issue.create({ data: { orderId: order17.id, type: "missing_required_field", severity: "blocking", source: "system", fieldPath: "medication.directions", title: "Directions missing", message: "Required by pharmacy" } });
-  await prisma.issue.create({ data: { orderId: order17.id, type: "missing_required_field", severity: "blocking", source: "system", fieldPath: "medication.quantity", title: "Quantity missing", message: "Required by pharmacy" } });
-  await prisma.issue.create({ data: { orderId: order19.id, type: "clarification_request", severity: "blocking", source: "rx_bridge_user", title: "Dose confirmation needed", message: "Brand requesting prescriber confirm Ipamorelin/CJC-1295 dosing" } });
-
-  // Issues (unified Issue model)
-  await prisma.issue.create({ data: { orderId: order5.id, type: "clarification_request", severity: "blocking", source: "rx_bridge_user", title: "Concentration ratio unclear", message: "Prescriber needs to confirm exact 80/20 ratio before compounding" } });
-  await prisma.issue.create({ data: { orderId: order7.id, type: "missing_required_field", severity: "blocking", source: "system", fieldPath: "medication.directions", title: "Directions missing", message: "Required by pharmacy" } });
-  await prisma.issue.create({ data: { orderId: order7.id, type: "missing_required_field", severity: "blocking", source: "system", fieldPath: "medication.quantity", title: "Quantity missing", message: "Required by pharmacy" } });
-
-  // Transmission for order 3
-  await prisma.orderTransmission.create({ data: { orderId: order3.id, pharmacyId: pharmacy3.id, method: "manual", payloadSnapshot: JSON.stringify({ orderId: order3.id, format: "standard" }), overrideUsed: false } });
-
-  // Status history
-  const statusHistories = [
-    { orderId: order1.id, status: "draft", note: "Order created via manual" },
-    { orderId: order1.id, status: "submitted", note: "Submitted for review" },
-    { orderId: order2.id, status: "submitted", note: "Order created via api" },
-    { orderId: order2.id, status: "under_review", note: "Under clinical review" },
-    { orderId: order2.id, status: "approved", note: "Approved — ready for pharmacy" },
-    { orderId: order2.id, status: "queued", note: "Added to send queue" },
-    { orderId: order3.id, status: "submitted", note: "Order created via ehr" },
-    { orderId: order3.id, status: "approved", note: "Approved" },
-    { orderId: order3.id, status: "sent_to_pharmacy", note: "Sent to BioFormula Pharmacy" },
-    { orderId: order4.id, status: "draft", note: "Order created via manual" },
-    { orderId: order5.id, status: "submitted", note: "Order created via api" },
-    { orderId: order5.id, status: "needs_clarification", note: "Concentration ratio unclear — contacting prescriber" },
-    { orderId: order6.id, status: "draft", note: "Order created via manual" },
-    { orderId: order6.id, status: "submitted", note: "Submitted" },
-    { orderId: order6.id, status: "approved", note: "Approved" },
-    { orderId: order6.id, status: "sent_to_pharmacy", note: "Sent to pharmacy" },
-    { orderId: order6.id, status: "completed", note: "Pharmacy confirmed fill" },
-    { orderId: order7.id, status: "submitted", note: "Order created via ehr — incomplete data" },
-    // New orders
-    { orderId: order8.id, status: "submitted", note: "Order created via api" },
-    { orderId: order8.id, status: "approved", note: "Approved" },
-    { orderId: order9.id, status: "draft", note: "Order created via manual" },
-    { orderId: order10.id, status: "submitted", note: "Order created via ehr" },
-    { orderId: order10.id, status: "approved", note: "Approved" },
-    { orderId: order10.id, status: "queued", note: "Added to send queue" },
-    { orderId: order11.id, status: "submitted", note: "Order created via api" },
-    { orderId: order12.id, status: "draft", note: "Order created via manual" },
-    { orderId: order12.id, status: "submitted", note: "Submitted for review" },
-    { orderId: order13.id, status: "submitted", note: "Order created via ehr" },
-    { orderId: order13.id, status: "approved", note: "Approved — urgent" },
-    { orderId: order14.id, status: "submitted", note: "Order created via api" },
-    { orderId: order14.id, status: "approved", note: "Approved" },
-    { orderId: order14.id, status: "queued", note: "Added to send queue" },
-    { orderId: order15.id, status: "draft", note: "Order created via manual" },
-    { orderId: order15.id, status: "submitted", note: "Submitted" },
-    { orderId: order15.id, status: "approved", note: "Approved" },
-    { orderId: order16.id, status: "submitted", note: "Order created via ehr" },
-    { orderId: order16.id, status: "approved", note: "Approved" },
-    { orderId: order16.id, status: "queued", note: "Added to send queue" },
-    { orderId: order16.id, status: "sent_to_pharmacy", note: "Sent to PrecisionMed Compounding" },
-    { orderId: order17.id, status: "submitted", note: "Order created via api — incomplete data" },
-    { orderId: order18.id, status: "draft", note: "Order created via manual" },
-    { orderId: order19.id, status: "submitted", note: "Order created via ehr" },
-    { orderId: order19.id, status: "needs_clarification", note: "Brand requesting dose confirmation" },
-    { orderId: order20.id, status: "draft", note: "Order created via manual" },
-    { orderId: order20.id, status: "submitted", note: "Submitted" },
-    { orderId: order20.id, status: "approved", note: "Approved" },
-    { orderId: order20.id, status: "sent_to_pharmacy", note: "Sent to BioFormula Pharmacy" },
-    { orderId: order20.id, status: "completed", note: "Pharmacy confirmed fill" },
-    { orderId: order21.id, status: "submitted", note: "Order created via api" },
-    { orderId: order21.id, status: "approved", note: "Approved" },
-    { orderId: order21.id, status: "queued", note: "Added to send queue" },
-    { orderId: order22.id, status: "submitted", note: "Order created via ehr" },
-    { orderId: order22.id, status: "approved", note: "Approved" },
-    // GLP-1 orders
-    { orderId: order23.id, status: "submitted", note: "Order created via api" },
-    { orderId: order23.id, status: "approved", note: "Approved" },
-    { orderId: order23.id, status: "queued", note: "Added to send queue" },
-    { orderId: order24.id, status: "submitted", note: "Order created via ehr" },
-    { orderId: order24.id, status: "approved", note: "Approved — priority" },
-    { orderId: order24.id, status: "sent_to_pharmacy", note: "Sent to PrecisionMed Compounding" },
-    { orderId: order25.id, status: "submitted", note: "Order created via manual" },
+  const programData = [
+    // Vitality Wellness — weight management + hormones
+    { brand: 0, pharm: 0, med: 0, rate: 285.00, code: "VIT-CRX-SEM-I9J0", start: daysAgo(30) },    // Semaglutide @ CompoundRx
+    { brand: 0, pharm: 1, med: 1, rate: 365.00, code: "VIT-PRE-TIR-A7B8", start: daysAgo(20) },    // Tirzepatide @ PrecisionMed
+    { brand: 0, pharm: 0, med: 6, rate: 120.00, code: "VIT-CRX-TES-A1B2", start: daysAgo(90) },    // Testosterone @ CompoundRx
+    // NovaDerm Health — aesthetics
+    { brand: 1, pharm: 1, med: 3, rate: 50.00, code: "NOV-PRE-TRE-K1L2", start: daysAgo(75) },     // Tretinoin @ PrecisionMed
+    { brand: 1, pharm: 0, med: 4, rate: 98.00, code: "NOV-CRX-GLU-M3N4", start: daysAgo(50) },     // Glutathione @ CompoundRx
+    // PeakLife Rx — peptides + wellness
+    { brand: 2, pharm: 1, med: 7, rate: 265.00, code: "PLR-PRE-SER-S9T0", start: daysAgo(55) },    // Sermorelin @ PrecisionMed
+    { brand: 2, pharm: 0, med: 1, rate: 360.00, code: "PLR-CRX-TIR-W3X4", start: daysAgo(25) },    // Tirzepatide @ CompoundRx
+    { brand: 2, pharm: 2, med: 5, rate: 140.00, code: "PLR-BIO-NAD-U1V2", start: daysAgo(40) },    // NAD+ @ BioFormula
   ];
 
-  for (const entry of statusHistories) {
-    await prisma.orderStatusHistory.create({ data: entry });
-  }
-
-  // --- Completed orders for Revenue analytics demo ---
-  // Spread across brands, pharmacies, medications, and dates to populate
-  // the Revenue page with meaningful data out of the box.
-  const daysAgo = (d: number) => new Date(Date.now() - d * 24 * 60 * 60 * 1000);
-
-  const completedOrders = [
-    // Recent (last 7 days)
-    { brand: brand1, patient: patient1, prescriber: prescriber1, pharmacy: pharmacy1, med: "Testosterone Cypionate", strength: "200mg/mL", form: "Injectable Solution", qty: 1, refills: 4, days: 70, completedAt: daysAgo(2) },
-    { brand: brand2, patient: patient2, prescriber: prescriber2, pharmacy: pharmacy2, med: "Progesterone", strength: "100mg", form: "Capsule", qty: 30, refills: 5, days: 30, completedAt: daysAgo(3) },
-    { brand: brand3, patient: patient3, prescriber: prescriber3, pharmacy: pharmacy1, med: "Low Dose Naltrexone", strength: "4.5mg", form: "Capsule", qty: 30, refills: 3, days: 30, completedAt: daysAgo(5) },
-    // Last 30 days
-    { brand: brand1, patient: patient5, prescriber: prescriber1, pharmacy: pharmacy3, med: "Sermorelin", strength: "9mg", form: "Injectable Solution", qty: 1, refills: 2, days: 30, completedAt: daysAgo(12) },
-    { brand: brand2, patient: patient6, prescriber: prescriber2, pharmacy: pharmacy2, med: "Estradiol/Estriol Cream", strength: "80/20 ratio", form: "Topical Cream", qty: 1, refills: 3, days: 30, completedAt: daysAgo(18) },
-    { brand: brand3, patient: patient7, prescriber: prescriber3, pharmacy: pharmacy1, med: "BPC-157", strength: "500mcg", form: "Capsule", qty: 60, refills: 1, days: 30, completedAt: daysAgo(22) },
-    { brand: brand1, patient: patient8, prescriber: prescriber1, pharmacy: pharmacy3, med: "DHEA", strength: "25mg", form: "Capsule", qty: 30, refills: 2, days: 30, completedAt: daysAgo(25) },
-    { brand: brand2, patient: patient9, prescriber: prescriber2, pharmacy: pharmacy1, med: "Sildenafil Troche", strength: "50mg", form: "Troche", qty: 10, refills: 2, days: 30, completedAt: daysAgo(28) },
-    // Older (30-60 days)
-    { brand: brand3, patient: patient10, prescriber: prescriber3, pharmacy: pharmacy2, med: "Tadalafil Capsule", strength: "5mg", form: "Capsule", qty: 30, refills: 5, days: 30, completedAt: daysAgo(35) },
-    { brand: brand1, patient: patient11, prescriber: prescriber1, pharmacy: pharmacy1, med: "Vitamin D3", strength: "50000 IU", form: "Capsule", qty: 12, refills: 1, days: 84, completedAt: daysAgo(40) },
-    { brand: brand2, patient: patient12, prescriber: prescriber2, pharmacy: pharmacy3, med: "Metformin Extended Release", strength: "500mg", form: "Capsule", qty: 60, refills: 5, days: 30, completedAt: daysAgo(45) },
-    { brand: brand3, patient: patient4, prescriber: prescriber3, pharmacy: pharmacy2, med: "Glutathione", strength: "200mg/mL", form: "Injectable Solution", qty: 1, refills: 2, days: 35, completedAt: daysAgo(50) },
-    // GLP-1 completed orders
-    { brand: brand1, patient: patient5, prescriber: prescriber1, pharmacy: pharmacy1, med: "Semaglutide", strength: "5mg/2mL", form: "Injectable Solution", qty: 1, refills: 3, days: 28, completedAt: daysAgo(6) },
-    { brand: brand2, patient: patient6, prescriber: prescriber2, pharmacy: pharmacy2, med: "Tirzepatide", strength: "10mg/2mL", form: "Injectable Solution", qty: 1, refills: 3, days: 28, completedAt: daysAgo(10) },
-    { brand: brand3, patient: patient7, prescriber: prescriber3, pharmacy: pharmacy1, med: "Semaglutide Sublingual", strength: "2mg", form: "Sublingual Tablet", qty: 30, refills: 5, days: 30, completedAt: daysAgo(14) },
-    { brand: brand1, patient: patient12, prescriber: prescriber1, pharmacy: pharmacy2, med: "Semaglutide", strength: "5mg/2mL", form: "Injectable Solution", qty: 1, refills: 3, days: 28, completedAt: daysAgo(32) },
-    { brand: brand2, patient: patient11, prescriber: prescriber2, pharmacy: pharmacy1, med: "Tirzepatide", strength: "10mg/2mL", form: "Injectable Solution", qty: 1, refills: 3, days: 28, completedAt: daysAgo(42) },
-  ];
-
-  for (const o of completedOrders) {
-    const order = await prisma.order.create({
+  for (const p of programData) {
+    await prisma.program.create({
       data: {
-        brandId: o.brand.id, patientId: o.patient.id, prescriberId: o.prescriber.id, pharmacyId: o.pharmacy.id,
-        medicationName: o.med, strength: o.strength, dosageForm: o.form,
-        directions: "As directed by prescriber", quantity: o.qty, refills: o.refills, daysSupply: o.days,
-        orderSource: "api", priority: "normal", status: "completed", sendReadiness: "ready",
-        completedAt: o.completedAt,
+        brandId: brands[p.brand].id,
+        pharmacyId: pharmacies[p.pharm].id,
+        medicationId: meds[p.med].id,
+        negotiatedRate: p.rate,
+        effectiveStart: p.start,
+        referenceCode: p.code,
+        status: "active",
       },
     });
-    // Full status history for each completed order
-    await prisma.orderStatusHistory.create({ data: { orderId: order.id, status: "submitted", note: "Order created via api" } });
-    await prisma.orderStatusHistory.create({ data: { orderId: order.id, status: "approved", note: "Approved" } });
-    await prisma.orderStatusHistory.create({ data: { orderId: order.id, status: "sent_to_pharmacy", note: "Sent to pharmacy" } });
-    await prisma.orderStatusHistory.create({ data: { orderId: order.id, status: "completed", note: "Pharmacy confirmed fill" } });
-    await prisma.orderTransmission.create({ data: { orderId: order.id, pharmacyId: o.pharmacy.id, method: "manual", payloadSnapshot: JSON.stringify({ orderId: order.id, format: "standard" }), overrideUsed: false } });
-
-    // Attach pricing
-    const med = pricingData[o.med];
-    if (med) {
-      const gpoPrice = Math.round(med.retail * (1 - med.discount) * 100) / 100;
-      await prisma.order.update({ where: { id: order.id }, data: { pricingJson: JSON.stringify({ gpoPrice, retailEstimate: med.retail, savingsAbsolute: Math.round((med.retail - gpoPrice) * 100) / 100, savingsPercent: med.discount }) } });
-    }
   }
 
-  // --- Filled refills for Revenue analytics demo ---
-  // These represent refill fills with actual pharmacy economics (sellPriceCents, pharmacyCostCents).
-  // Mix of complete data (high confidence) and partial data (data quality flags).
-  // Refills reference existing completed orders (order6, order20, and the new completed orders).
+  // Fill Records — for reconciliation demo
+  const fillData = [
+    // Matches (actual = expected)
+    { code: "VIT-CRX-SEM-I9J0", med: 0, pharm: 0, brand: 0, qty: 1, actual: 285.00, expected: 285.00, days: 3 },
+    { code: "VIT-CRX-TES-A1B2", med: 6, pharm: 0, brand: 0, qty: 1, actual: 120.00, expected: 120.00, days: 5 },
+    { code: "NOV-PRE-TRE-K1L2", med: 3, pharm: 1, brand: 1, qty: 1, actual: 50.00, expected: 50.00, days: 15 },
+    { code: "PLR-PRE-SER-S9T0", med: 7, pharm: 1, brand: 2, qty: 1, actual: 265.00, expected: 265.00, days: 18 },
+    { code: "PLR-CRX-TIR-W3X4", med: 1, pharm: 0, brand: 2, qty: 1, actual: 360.00, expected: 360.00, days: 7 },
+    // Mismatches (pharmacy charged different rate)
+    { code: "VIT-PRE-TIR-A7B8", med: 1, pharm: 1, brand: 0, qty: 1, actual: 372.00, expected: 365.00, days: 6 },
+    { code: "PLR-BIO-NAD-U1V2", med: 5, pharm: 2, brand: 2, qty: 1, actual: 148.00, expected: 140.00, days: 14 },
+    // Missing (fill exists but no matching program rate)
+    { code: "UNKNOWN-001", med: 4, pharm: 1, brand: 1, qty: 1, actual: 78.00, expected: 0.00, days: 28 },
+  ];
 
-  // Get some completed order IDs for refill references
-  const completedOrderIds = await prisma.order.findMany({
-    where: { status: "completed" },
-    select: { id: true, patientId: true, pharmacyId: true, brandId: true, medicationName: true, quantity: true },
-    orderBy: { completedAt: "desc" },
-    take: 15,
+  for (const f of fillData) {
+    const variance = Math.round((f.actual - f.expected) * 100) / 100;
+    const status = f.expected === 0 ? "missing" : Math.abs(variance) < 0.01 ? "match" : "mismatch";
+    await prisma.fillRecord.create({
+      data: {
+        referenceCode: f.code,
+        medicationId: meds[f.med].id,
+        pharmacyId: pharmacies[f.pharm].id,
+        brandId: brands[f.brand].id,
+        quantity: f.qty,
+        actualRate: f.actual,
+        expectedRate: f.expected,
+        variance,
+        status,
+        fillDate: daysAgo(f.days),
+      },
+    });
+  }
+
+  // =============================================
+  // MED SPAS
+  // =============================================
+
+  const spa1 = await prisma.medSpa.create({
+    data: {
+      name: "Glow Aesthetics", city: "Austin", state: "TX",
+      contactName: "Jessica Palmer", email: "jessica@glowaesthetics.com", phone: "5125551001",
+      pipelineStage: "negotiating", currentVendor: "Direct from local compounding",
+      estMonthlyVolume: "$8,000 - $12,000", nextStep: "Send final pricing proposal",
+      lastContactedAt: daysAgo(2),
+    },
+  });
+  const spa2 = await prisma.medSpa.create({
+    data: {
+      name: "Revive Med Spa", city: "Scottsdale", state: "AZ",
+      contactName: "Dr. Rachel Torres", email: "rachel@revivemedspa.com", phone: "4805552001",
+      pipelineStage: "pricing_sent", currentVendor: "Regional GPO",
+      estMonthlyVolume: "$10,000 - $15,000", nextStep: "Follow up on proposal — decision expected this week",
+      lastContactedAt: daysAgo(5),
+    },
+  });
+  const spa3 = await prisma.medSpa.create({
+    data: {
+      name: "Radiance Clinic", city: "Nashville", state: "TN",
+      contactName: "Mark Sullivan", email: "mark@radianceclinic.com", phone: "6155553001",
+      pipelineStage: "contacted", currentVendor: "Buying direct, no GPO",
+      estMonthlyVolume: "$3,000 - $5,000", nextStep: "Schedule pricing discovery call",
+      lastContactedAt: daysAgo(8),
+    },
   });
 
-  // completedOrderIds order (by completedAt desc):
-  // [0] Testosterone Cypionate (qty 1, vial) — sell $125, cost $85
-  // [1] Progesterone (qty 30, caps) — sell 30×$1.60=$48, cost 30×$1.10=$33
-  // [2] LDN (qty 30, caps) — sell 30×$1.45=$43.50, cost 30×$0.90=$27
-  // [3] Semaglutide (qty 1, vial) — sell $299, cost $165
-  // [4] Tirzepatide (qty 1, vial) — sell $379, cost $195 (pharmacy2 = ×1.08 = $210.60)
-  // [5] Sermorelin (qty 1, vial) — sell $275, cost $175 (pharmacy3 = ×1.15 = $201.25)
-  // [6] Semaglutide Sublingual (qty 30, tabs) — sell 30×$8.50=$255, cost 30×$4.50=$135
-  // [7] Estradiol/Estriol Cream (qty 1, tube) — sell $78, cost $52 (pharmacy2 = ×1.08 = $56.16)
-  // [8] BPC-157 (qty 60, caps) — sell 60×$4.25=$255, cost 60×$2.80=$168
-  // [9] DHEA (qty 30, caps) — sell 30×$0.95=$28.50
-  // [10] Sildenafil Troche (qty 10) — sell 10×$5.75=$57.50
-  // [11] Semaglutide (qty 1, vial) — older fill, pharmacy2
-  // [12] Tadalafil Capsule (qty 30)
-  const refillData = [
-    // High-confidence refills (both sell and cost present)
-    { orderIdx: 0, filledDaysAgo: 1, sellCents: 12500, costCents: 8500, source: "brand_portal" },     // Testosterone — $125 / $85
-    { orderIdx: 1, filledDaysAgo: 4, sellCents: 4800, costCents: 3300, source: "api" },                // Progesterone 30ct — $48 / $33
-    { orderIdx: 2, filledDaysAgo: 8, sellCents: 4350, costCents: 2700, source: "brand_portal" },       // LDN 30ct — $43.50 / $27
-    { orderIdx: 3, filledDaysAgo: 3, sellCents: 29900, costCents: 16500, source: "brand_portal" },     // Semaglutide — $299 / $165
-    { orderIdx: 4, filledDaysAgo: 7, sellCents: 37900, costCents: 21060, source: "api" },              // Tirzepatide — $379 / $210.60
-    { orderIdx: 5, filledDaysAgo: 15, sellCents: 27500, costCents: 20125, source: "api" },             // Sermorelin — $275 / $201.25
-    { orderIdx: 6, filledDaysAgo: 12, sellCents: 25500, costCents: 13500, source: "brand_portal" },    // Semaglutide Sublingual 30ct — $255 / $135
-    { orderIdx: 8, filledDaysAgo: 30, sellCents: 25500, costCents: 16800, source: "api" },             // BPC-157 60ct — $255 / $168
-    { orderIdx: 7, filledDaysAgo: 20, sellCents: 7800, costCents: 5616, source: "brand_portal" },      // Estradiol cream — $78 / $56.16
-    // Medium-confidence refill (missing cost — triggers DQ flag)
-    { orderIdx: 9, filledDaysAgo: 10, sellCents: 2850, costCents: null, source: "brand_portal" },      // DHEA 30ct — $28.50 / no cost
-    // Low-confidence refill (missing both — triggers DQ flags)
-    { orderIdx: 10, filledDaysAgo: 25, sellCents: null, costCents: null, source: "api" },              // Sildenafil — no pricing data
+  // Med Spa orders — historical purchases at higher prices than Rx-Bridge network
+  const spaOrderData = [
+    // Glow Aesthetics — high-volume GLP-1 + aesthetics clinic
+    { spa: spa1, med: 0, pharm: 0, qty: 1, cost: 220.00, days: 3 },   // Semaglutide
+    { spa: spa1, med: 0, pharm: 0, qty: 1, cost: 220.00, days: 32 },
+    { spa: spa1, med: 0, pharm: 0, qty: 1, cost: 225.00, days: 61 },
+    { spa: spa1, med: 1, pharm: 1, qty: 1, cost: 275.00, days: 7 },   // Tirzepatide
+    { spa: spa1, med: 1, pharm: 1, qty: 1, cost: 275.00, days: 35 },
+    { spa: spa1, med: 4, pharm: 0, qty: 1, cost: 105.00, days: 10 },  // Glutathione
+    { spa: spa1, med: 4, pharm: 0, qty: 1, cost: 105.00, days: 40 },
+    { spa: spa1, med: 5, pharm: 1, qty: 1, cost: 135.00, days: 14 },  // NAD+ Spray
+    { spa: spa1, med: 3, pharm: 0, qty: 1, cost: 52.00, days: 20 },   // Tretinoin
+    { spa: spa1, med: 3, pharm: 0, qty: 1, cost: 52.00, days: 50 },
+    // Revive Med Spa — weight management focused
+    { spa: spa2, med: 0, pharm: 1, qty: 1, cost: 230.00, days: 5 },   // Semaglutide
+    { spa: spa2, med: 0, pharm: 1, qty: 1, cost: 230.00, days: 33 },
+    { spa: spa2, med: 1, pharm: 2, qty: 1, cost: 290.00, days: 8 },   // Tirzepatide
+    { spa: spa2, med: 1, pharm: 2, qty: 1, cost: 285.00, days: 36 },
+    { spa: spa2, med: 2, pharm: 1, qty: 30, cost: 6.50, days: 12 },   // Semaglutide Sublingual
+    { spa: spa2, med: 6, pharm: 2, qty: 1, cost: 125.00, days: 15 },  // Testosterone
+    { spa: spa2, med: 6, pharm: 2, qty: 1, cost: 125.00, days: 45 },
+    { spa: spa2, med: 7, pharm: 1, qty: 1, cost: 250.00, days: 18 },  // Sermorelin
+    { spa: spa2, med: 4, pharm: 2, qty: 1, cost: 110.00, days: 22 },  // Glutathione
+    // Radiance Clinic — prospect (smaller volume)
+    { spa: spa3, med: 0, pharm: 0, qty: 1, cost: 240.00, days: 10 },  // Semaglutide
+    { spa: spa3, med: 1, pharm: 0, qty: 1, cost: 280.00, days: 15 },  // Tirzepatide
+    { spa: spa3, med: 3, pharm: 1, qty: 1, cost: 55.00, days: 20 },   // Tretinoin
   ];
 
-  for (const r of refillData) {
-    const order = completedOrderIds[r.orderIdx];
-    if (!order) continue;
-    await prisma.refillRequest.create({
+  for (const o of spaOrderData) {
+    await prisma.medSpaOrder.create({
       data: {
-        orderId: order.id,
-        brandId: order.brandId,
-        patientId: order.patientId,
-        pharmacyId: order.pharmacyId,
-        medicationName: order.medicationName,
-        quantity: order.quantity,
-        status: "filled",
-        source: r.source,
-        sellPriceCents: r.sellCents,
-        pharmacyCostCents: r.costCents,
-        filledAt: daysAgo(r.filledDaysAgo),
-        validatedAt: daysAgo(r.filledDaysAgo + 1),
-        sentToPharmacyAt: daysAgo(r.filledDaysAgo + 1),
-        pharmacyOrderId: `PH-${Math.random().toString(36).slice(2, 8).toUpperCase()}`,
-        quantityDispensed: order.quantity,
+        medSpaId: o.spa.id,
+        medicationId: meds[o.med].id,
+        pharmacyId: pharmacies[o.pharm].id,
+        quantity: o.qty,
+        unitCost: o.cost,
+        createdAt: daysAgo(o.days),
       },
     });
   }
 
-  // One in-flight refill (sent but not yet filled) for demo variety
-  if (completedOrderIds[11]) {
-    await prisma.refillRequest.create({
+  // Pricing lines — user-entered current pricing for each med spa
+  const pricingLineData = [
+    // Glow Aesthetics
+    { spa: spa1, name: "Semaglutide", cost: 220.00, unit: "vial", qty: 3, vendor: "Local compounding pharmacy", source: "Invoice" },
+    { spa: spa1, name: "Tirzepatide", cost: 275.00, unit: "vial", qty: 2, vendor: "Local compounding pharmacy", source: "Invoice" },
+    { spa: spa1, name: "Glutathione", cost: 105.00, unit: "vial", qty: 2, vendor: "CompoundRx Pharmacy", source: "Invoice" },
+    { spa: spa1, name: "NAD+ Nasal Spray", cost: 135.00, unit: "bottle", qty: 1, vendor: "PrecisionMed Compounding", source: "Invoice" },
+    { spa: spa1, name: "Tretinoin Cream", cost: 52.00, unit: "tube", qty: 2, vendor: "CompoundRx Pharmacy", source: "Verbal quote" },
+    // Revive Med Spa
+    { spa: spa2, name: "Semaglutide", cost: 230.00, unit: "vial", qty: 4, vendor: "Regional GPO", source: "Contract" },
+    { spa: spa2, name: "Tirzepatide", cost: 290.00, unit: "vial", qty: 3, vendor: "Regional GPO", source: "Contract" },
+    { spa: spa2, name: "Semaglutide Sublingual", cost: 6.50, unit: "tablet", qty: 30, vendor: "Regional GPO", source: "Contract" },
+    { spa: spa2, name: "Testosterone Cypionate", cost: 125.00, unit: "vial", qty: 2, vendor: "BioFormula Pharmacy", source: "Invoice" },
+    { spa: spa2, name: "Sermorelin", cost: 250.00, unit: "vial", qty: 1, vendor: "PrecisionMed Compounding", source: "Invoice" },
+    { spa: spa2, name: "Glutathione", cost: 110.00, unit: "vial", qty: 1, vendor: "BioFormula Pharmacy", source: "Invoice" },
+    // Radiance Clinic (prospect — less data)
+    { spa: spa3, name: "Semaglutide", cost: 240.00, unit: "vial", qty: 2, vendor: "Direct pharmacy", source: "Website" },
+    { spa: spa3, name: "Tirzepatide", cost: 280.00, unit: "vial", qty: 1, vendor: "Direct pharmacy", source: "Website" },
+    { spa: spa3, name: "Tretinoin Cream", cost: 55.00, unit: "tube", qty: 1, vendor: "Direct pharmacy", source: "Verbal quote" },
+  ];
+
+  for (const l of pricingLineData) {
+    await prisma.medSpaPricingLine.create({
       data: {
-        orderId: completedOrderIds[11].id,
-        brandId: completedOrderIds[11].brandId,
-        patientId: completedOrderIds[11].patientId,
-        pharmacyId: completedOrderIds[11].pharmacyId,
-        medicationName: completedOrderIds[11].medicationName,
-        quantity: completedOrderIds[11].quantity,
-        status: "sent_to_pharmacy",
-        source: "brand_portal",
-        validatedAt: daysAgo(2),
-        sentToPharmacyAt: daysAgo(2),
+        medSpaId: l.spa.id, medicationName: l.name, currentCost: l.cost,
+        unit: l.unit, monthlyQty: l.qty, currentVendor: l.vendor,
+        pricingSource: l.source, confirmedAt: daysAgo(Math.floor(Math.random() * 30)),
+      },
+    });
+  }
+
+  // Notes — activity history
+  const noteData = [
+    { spa: spa1, note: "Initial discovery call — Jessica confirmed they buy Semaglutide and Tirzepatide from a local compounder at $220-275/vial. Very open to better pricing.", type: "call", days: 15 },
+    { spa: spa1, note: "Sent pricing comparison showing 25-30% savings across all GLP-1s. Jessica forwarded to her business partner.", type: "pricing", days: 10 },
+    { spa: spa1, note: "Follow-up call — partner reviewed pricing, wants to see proposal with preferred pharmacies included.", type: "call", days: 5 },
+    { spa: spa1, note: "Sent formal proposal with CompoundRx as preferred pharmacy for GLP-1s. Awaiting decision.", type: "email", days: 2 },
+    { spa: spa2, note: "Referral from Vitality Wellness. Rachel is currently with a regional GPO but not happy with service.", type: "note", days: 20 },
+    { spa: spa2, note: "Pricing discovery — they pay $230/vial for Semaglutide through their current GPO. We can beat that significantly.", type: "call", days: 12 },
+    { spa: spa2, note: "Sent comprehensive pricing sheet. Rachel reviewing with her practice manager.", type: "pricing", days: 5 },
+    { spa: spa3, note: "Mark reached out via website inquiry. Small clinic, buying direct from pharmacy at full retail.", type: "note", days: 8 },
+    { spa: spa3, note: "Left voicemail to schedule pricing discovery call.", type: "follow_up", days: 4 },
+  ];
+
+  for (const n of noteData) {
+    await prisma.medSpaNote.create({
+      data: { medSpaId: n.spa.id, note: n.note, type: n.type, createdAt: daysAgo(n.days) },
+    });
+  }
+
+  // Fulfilled orders — actual post-close business for Glow Aesthetics
+  const fulfilledData = [
+    { spa: spa1, date: 2, med: "Semaglutide", qty: 1, pharm: "CompoundRx Pharmacy", paid: 200.00, cost: 165.00 },
+    { spa: spa1, date: 4, med: "Tirzepatide", qty: 1, pharm: "CompoundRx Pharmacy", paid: 255.00, cost: 195.00 },
+    { spa: spa1, date: 5, med: "Semaglutide", qty: 1, pharm: "CompoundRx Pharmacy", paid: 200.00, cost: 165.00 },
+    { spa: spa1, date: 8, med: "Glutathione", qty: 1, pharm: "CompoundRx Pharmacy", paid: 95.00, cost: 72.00 },
+    { spa: spa1, date: 10, med: "Semaglutide", qty: 1, pharm: "CompoundRx Pharmacy", paid: 200.00, cost: 165.00 },
+    { spa: spa1, date: 12, med: "Tretinoin Cream", qty: 1, pharm: "CompoundRx Pharmacy", paid: 48.00, cost: 35.00 },
+    { spa: spa1, date: 15, med: "Tirzepatide", qty: 1, pharm: "CompoundRx Pharmacy", paid: 255.00, cost: 195.00 },
+    { spa: spa1, date: 20, med: "Semaglutide", qty: 1, pharm: "CompoundRx Pharmacy", paid: 200.00, cost: 165.00 },
+    { spa: spa1, date: 22, med: "NAD+ Nasal Spray", qty: 1, pharm: "PrecisionMed Compounding", paid: 120.00, cost: 95.00 },
+  ];
+
+  for (const f of fulfilledData) {
+    await prisma.medSpaFulfilledOrder.create({
+      data: {
+        medSpaId: f.spa.id, orderDate: daysAgo(f.date),
+        medicationName: f.med, quantity: f.qty, pharmacyName: f.pharm,
+        medSpaPaid: f.paid, pharmacyCost: f.cost,
       },
     });
   }
 
   console.log("Seed data created successfully");
-  console.log("  3 brands, 3 pharmacies, 5 brand-pharmacy configs");
-  console.log("  3 prescribers, 12 patients");
-  console.log("  25 workflow orders + 17 completed orders = 42 total");
-  console.log("  11 filled refills + 1 in-flight refill");
-  console.log("  7 issues, transmissions, full status histories");
+  console.log("  3 brands, 3 pharmacies, 8 medications (med spa focused)");
+  console.log("  8 programs, 8 fill records");
+  console.log("  24 medication price entries");
+  console.log("  3 med spas, 22 orders, 14 pricing lines, 9 notes, 9 fulfilled orders");
 }
 
 main()
